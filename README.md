@@ -40,16 +40,14 @@ in `config/broaddb.yaml` you can specify:
 * a file "genomes_to_exclude" where in each line you can specify a problematic id, useful if there are corrupted proteomes or things like this
 * a tsv file "new_genomes" with these columns: ID,Species,Fasta,Lineage,Paper,Source,Note useful to retrieve new genomes not in various euka DBs 
 
-
 ## TODO
 
-- [ ] Add seqkit stats rule
 - [ ] IMPORTANT MANAGE P10K EXCEPTIONS THAT ARE NOT IN UNIEUK! If no match you may keep the p10k as it should not cause conflicts??? Or better check in eukprot if some matches
-- [ ] Add a pipeline to input whatever list of ids and get the dbs
-- [ ] Check if taxonomy is alright
 - [ ] Decide if keeping taxid in protein name
-- [ ] Protocol for updating the taxonomy according to the new added proteome
-- [ ] Protocol for getting a personalised taxonomy (subset)
+- [ ] Add a script to input whatever list of ids and get the dbs, you could do another snakefile based on a config with db_name, taxids (either leaves or nodes) and one day fasta with other sequences (this would require to have a taxid map with the good taxonomy). 
+- [x] Add seqkit stats rule
+- [x] Check if taxonomy is alright
+- [x] Protocol for updating the taxonomy according to the new added proteome
 - [x] remove low complexity proteins
 - [x] Right now to avoid adding 80k rules gtdb has to be downloaded with --until decompress_gtdb_genomes, not ideal but the fastest option
 - [x] Add way to add custom DB
@@ -65,16 +63,7 @@ in `config/broaddb.yaml` you can specify:
 
 ## Protocol for adding proteomes
 
-Ideally for how its implemented to add new proteomes you could simply need a file with `mnemo   lineage` information. And fasta files for each genome named as the mnemo.fa.gz in a folder.
-
-### Ideas
-
-* Filter gtdb to reduce redundancy?
-* Table as input, with the genome file, taxonomy and NCBI taxID (`NA` if it does not) if it has.
-```
-fullpath.fa mnemonic    TaxID   mandatory_ranks/lineage
-```
-* genome db?
+In order to add a proteome you can modify the `euka_genomes.csv` table of [this repo](https://gitlab.bsc.es/gmutti/add_proteomes) and follow the instructions in the README.
 
 ## Dependencies
 
@@ -86,3 +75,8 @@ fullpath.fa mnemonic    TaxID   mandatory_ranks/lineage
 * blast
 * diamond
 * taxonkit
+
+### Ideas
+
+* Filter gtdb to reduce redundancy? Results were not satisfying.
+* genome|gffs db?

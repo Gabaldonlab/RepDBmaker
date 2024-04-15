@@ -21,4 +21,5 @@ rule all:
         "results/taxonomies/all_eukaryotes.tsv",
         "results/db/repdb_diamond",
         "results/db/repdb_blast",
-        "results/db/repdb_mmseqs"
+        "results/db/repdb_mmseqs",
+        "results/meta/repdb_stats.tsv"
