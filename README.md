@@ -1,0 +1,88 @@
+# BroadDB
+
+## Taxonomic Composition
+
+* **Eukaryotes:** represented by proteomes in [uniprot](https://www.uniprot.org/proteomes?query=*&facets=proteome_type%3A1%2Csuperkingdom%3AEukaryota), [EukProt](https://evocellbio.com/eukprot/), [P10K](https://ngdc.cncb.ac.cn/p10k/browse/genome) and custom genomes. All these proteomes will be annotated with unieuk taxonomy and selected to get the most taxonomically representative (`workflow/scripts/filter_tax.R`) by removing duplicated species, getting one species per genus and 20 per Opisthokonta and Ciliates family as they are overrepresented.
+* **Prokaryotes:** Bacterial and Archeal genomes come from [GTDB](https://gtdb.ecogenomic.org/)
+* **Viruses:** 
+In this case we use all [NCBI RefSeq](https://www.ncbi.nlm.nih.gov/genome/viruses/) viral genomes. 
+
+For Eukaryotes the taxonomic division can be in two ways:
+
+* NCBI taxonomy
+* UniEuk and Eukprot taxonomy where Class, Order and Family are represented by the supergroup division of eukprot (Supergroup_UniEuk, Taxogroup1_UniEuk, Taxogroup2_UniEuk). The script `workflow/scripts/get_tax.R` will try to look for each level in the NCBI taxonomy if there is a match with any UniEuk item. Then, will match the unieuk taxonomy to Eukprot supergroup division and get these 3 levels. Genus is inferred from species name and kingdom is Eukaryota by default.
+
+## Build the database
+
+You can check what the pipeline will do with: 
+
+`snakemake --rulegraph | dot -Tpdf > resources/wf.pdf`
+
+![](resources/wf.png)
+
+First of all you need to download some files from different public repositories, to do this you can run:
+
+`snakemake -j4 -p --ri -k --until online_resources`
+
+For p10k, viruses and uniprot genomes each one has to be downloaded, whereas for eukprot and gtdb you just need to download the big file once and then extract offline from that.
+
+As in MN we only have internet in login nodes this only runs those rules that require some files to be downloaded with minimal parsing. Once it's done you can check the file of `results/meta/check_resources.txt` if all files look ok but they should if the pipeline did not fail.
+
+After this you can do the heavy parsing and building the different dbs on a compute node with:
+
+`snakemake -p --ri -k -j 48`
+
+## Config
+
+in `config/broaddb.yaml` you can specify:
+
+* a file "clades_to_keep" where each line is a group where you'd like to include all avaiable genomes.
+* a file "genomes_to_exclude" where in each line you can specify a problematic id, useful if there are corrupted proteomes or things like this
+* a tsv file "new_genomes" with these columns: ID,Species,Fasta,Lineage,Paper,Source,Note useful to retrieve new genomes not in various euka DBs 
+
+
+## TODO
+
+- [ ] Add seqkit stats rule
+- [ ] IMPORTANT MANAGE P10K EXCEPTIONS THAT ARE NOT IN UNIEUK! If no match you may keep the p10k as it should not cause conflicts??? Or better check in eukprot if some matches
+- [ ] Add a pipeline to input whatever list of ids and get the dbs
+- [ ] Check if taxonomy is alright
+- [ ] Decide if keeping taxid in protein name
+- [ ] Protocol for updating the taxonomy according to the new added proteome
+- [ ] Protocol for getting a personalised taxonomy (subset)
+- [x] remove low complexity proteins
+- [x] Right now to avoid adding 80k rules gtdb has to be downloaded with --until decompress_gtdb_genomes, not ideal but the fastest option
+- [x] Add way to add custom DB
+- [x] Decide if changing p10k id without dashes
+- [x] Reduce broaddb redundancy
+- [x] One day pass to ICTV taxonomy? I dont see many benefits for all the headaches, however if needed check this [repo](https://github.com/apcamargo/ictv-mmseqs2-protein-database)
+- [x] Protocol to create a taxdump
+- [x] Check the pr2 taxonomy
+- [x] Add how to download uniprot proteomes
+- [x] Add EukProt non opistho
+- [x] Add P10K interesting
+- [x] script parses the genome headers, assigning a new name for each protein, it also stores the original name related to the old name.
+
+## Protocol for adding proteomes
+
+Ideally for how its implemented to add new proteomes you could simply need a file with `mnemo   lineage` information. And fasta files for each genome named as the mnemo.fa.gz in a folder.
+
+### Ideas
+
+* Filter gtdb to reduce redundancy?
+* Table as input, with the genome file, taxonomy and NCBI taxID (`NA` if it does not) if it has.
+```
+fullpath.fa mnemonic    TaxID   mandatory_ranks/lineage
+```
+* genome db?
+
+## Dependencies
+
+* tidyverse
+* pandas
+* csvtk
+* taxonkit
+* mmseqs
+* blast
+* diamond
+* taxonkit

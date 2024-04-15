@@ -1,0 +1,24 @@
+import random
+random.seed(42)
+
+configfile: "config/repdb.yaml"
+
+
+# Import modules/rules
+include: 'rules/download.smk'
+include: 'rules/p10k.smk'
+include: 'rules/gtdb.smk'
+include: 'rules/custom.smk'
+include: 'rules/eukprot.smk'
+include: 'rules/uniprot.smk'
+include: 'rules/virus.smk'
+include: 'rules/db.smk'
+
+
+rule all:
+    input:
+        "results/meta/check_resources.txt",
+        "results/taxonomies/all_eukaryotes.tsv",
+        "results/db/repdb_diamond",
+        "results/db/repdb_blast",
+        "results/db/repdb_mmseqs"
