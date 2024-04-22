@@ -60,7 +60,7 @@ Instead of adding all eukaryotic genomes there is a step (implemented in `workfl
 
 You can see the results of this filtering in `results/plots/euka_db.pdf`
 
-![](results/plots/euka_db.png)
+![](resources/euka_db.png)
 
 ## TODO
 
