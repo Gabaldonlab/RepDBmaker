@@ -58,6 +58,10 @@ In `results/tmp` different files downloaded from internet that are big and could
 
 Instead of adding all eukaryotic genomes there is a step (implemented in `workflow/scripts/filter_tax.R`) to select remove duplicated species, selecting one genome per genus and only considering max 20 genomes per Opisthokonta and Ciliates families (as they are clearly overrepresented). Selecting one genome per genus blindly may be too strict but from 5k genomes we get 2.4k suggesting there is a lot of redundancy. A possible better implementation would be to select one genome per genus only if the representative is complete>70% for example.
 
+You can see the results of this filtering in `results/plots/euka_db.pdf`
+
+![](results/plots/euka_db.png)
+
 ## TODO
 
 - [ ] Implement smarter rule for filtering eukaryotes.
