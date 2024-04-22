@@ -40,8 +40,27 @@ in `config/broaddb.yaml` you can specify:
 * a file "genomes_to_exclude" where in each line you can specify a problematic id, useful if there are corrupted proteomes or things like this
 * a tsv file "new_genomes" with these columns: ID,Species,Fasta,Lineage,Paper,Source,Note useful to retrieve new genomes not in various euka DBs 
 
+## Output files
+
+In `results/db` you will find the repdb fasta (`db/repdb.fa`), blast (`repdb_blast`), diamond (`repdb_diamond`) and mmseqs (`repdb_mmseqs`) databases, all taxonomically annotated.
+
+In `results/meta` various metadata files including QC for every DB and various IDs files. 
+
+In `results/proteomes` raw proteomes divided by DB. The parsed ones are directly piped into `db/repdb.fa`.
+
+In `results/taxdump` both ncbi and repdb unieuk taxdump.
+
+In `results/taxonomies` taxonomies files, for eukaryotes there are both ncbi and unieuk taxonomies. The file `all_eukaryotes.tsv` is interesting as they are all genomes, even if they are not included in repdb.
+
+In `results/tmp` different files downloaded from internet that are big and could be deleted, the most important ones are gtdb proteins and EukProt fastas.
+
+## Filtering Eukaryotes
+
+Instead of adding all eukaryotic genomes there is a step (implemented in `workflow/scripts/filter_tax.R`) to select remove duplicated species, selecting one genome per genus and only considering max 20 genomes per Opisthokonta and Ciliates families (as they are clearly overrepresented). Selecting one genome per genus blindly may be too strict but from 5k genomes we get 2.4k suggesting there is a lot of redundancy. A possible better implementation would be to select one genome per genus only if the representative is complete>70% for example.
+
 ## TODO
 
+- [ ] Implement smarter rule for filtering eukaryotes.
 - [ ] IMPORTANT MANAGE P10K EXCEPTIONS THAT ARE NOT IN UNIEUK! If no match you may keep the p10k as it should not cause conflicts??? Or better check in eukprot if some matches
 - [ ] Decide if keeping taxid in protein name
 - [ ] Add a script to input whatever list of ids and get the dbs, you could do another snakefile based on a config with db_name, taxids (either leaves or nodes) and one day fasta with other sequences (this would require to have a taxid map with the good taxonomy). 
