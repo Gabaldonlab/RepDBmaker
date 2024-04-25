@@ -36,7 +36,7 @@ After this you can do the heavy parsing and building the different dbs on a comp
 
 in `config/broaddb.yaml` you can specify:
 
-* a file "clades_to_keep" where each line is a group where you'd like to include all avaiable genomes.
+* a file "clades_to_keep" where each line is a group where you'd like to include all avaiable genomes. All Custom genomes are kept by default.
 * a file "genomes_to_exclude" where in each line you can specify a problematic id, useful if there are corrupted proteomes or things like this
 * a tsv file "new_genomes" with these columns: ID,Species,Fasta,Lineage,Paper,Source,Note useful to retrieve new genomes not in various euka DBs 
 
@@ -64,6 +64,7 @@ You can see the results of this filtering in `results/plots/euka_db.pdf`
 
 ## TODO
 
+- [ ] Once a new version you could run snakemake --force --until gtdb for example. Now they released new gtdb and test with this!
 - [ ] Implement smarter rule for filtering eukaryotes.
 - [ ] IMPORTANT MANAGE P10K EXCEPTIONS THAT ARE NOT IN UNIEUK! If no match you may keep the p10k as it should not cause conflicts??? Or better check in eukprot if some matches
 - [ ] Decide if keeping taxid in protein name
