@@ -2,7 +2,7 @@ checkpoint paths_gtdb:
     input: rules.get_gtdb_tax.output.meta
     output: "results/meta/gtdb_paths.txt",
     shell:'''
-awk 'NR>1' {input} | cut -f1,17 | sed 's/;.*\|d__//g' | \
+csvtk cut -t -f accession,gtdb_taxonomy {input} | awk 'NR>1' | sed 's/;.*\|d__//g' | \
 awk -F"\\t" '{{l = $0; sub($2, "", l); print "protein_faa_reps/"tolower($2)"/"$1"_protein.faa.gz"}}' > {output}
 '''
 

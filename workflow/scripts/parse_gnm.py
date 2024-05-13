@@ -79,12 +79,13 @@ def write_fasta(seqs, rename=False, taxid=None, taxiddic = None, virus=False, fi
             ostr += seqs[seq][l:l+seqlen] + '\n'
     
     if ofilenm is not None:
-        if append:
-            ofile = open(ofilenm, 'a')
-        else:
-            ofile = open(ofilenm, 'w')
-        ofile.write(ostr)
-        ofile.close()
+        with gzip.open(ofilenm, "at") as ofile:
+            ofile.write(ostr)
+            ofile.close()
+        #     if append:
+        #     ofile = open(ofilenm, 'a')
+        # else:
+        #     ofile = open(ofilenm, 'w')
 
     if mapfile is not None:
         with open(mapfile, 'a') as omapfile:

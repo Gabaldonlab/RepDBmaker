@@ -1,0 +1,226 @@
+---
+title: "Euka Taxon Filtering"
+date: "`r format(Sys.time(), '%d-%b-%Y')`"
+author: "Giacomo Mutti"
+output:
+    rmdformats::html_clean:
+        number_sections: false
+        code_folding: hide
+        self_contained: true
+        fig_caption: true
+        # thumbnails: false
+        # lightbox: false
+        gallery: true
+        toc_depth: 3
+        highlight: kate
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = FALSE, warning = FALSE)
+knitr::knit_hooks$set(crop = knitr::hook_pdfcrop)
+knitr::opts_chunk$set(crop = TRUE)
+```
+
+```{r libs}
+suppressPackageStartupMessages(library(tidyverse))
+library(ggsankey)
+
+theme_set(theme_classic())
+
+color_db <- c("#c93f55", "#eacc62", "#469d76", "#924099")
+names(color_db) <- c("uniprot", "eukprot", "p10k", "custom")
+```
+
+```{r parse_data}
+up_stats <- read_delim("results/meta/uniprot_busco.tsv", show_col_types = F) %>% 
+    janitor::clean_names() %>% 
+    mutate(completeness=parse_number(gsub("\\[.*", "", busco))) %>% 
+    select(proteome_id, completeness)
+colnames(up_stats) <- c("mnemo", "completeness")
+ep_stats <- read_delim("results/meta/EukProt_busco.tsv", show_col_types = F) %>% 
+    mutate(mnemo=gsub("_.*", "", Input_file)) %>% 
+    select(mnemo, Complete)
+colnames(ep_stats) <- c("mnemo", "completeness")
+p10k_stats <- read_delim("results/meta/p10k_meta.tsv", show_col_types = F)
+
+# some p10k genomes are not annotated! Remove them
+p10k_unannotated <- p10k_stats[p10k_stats$n_genes==-1, ]$p10k_id
+
+paste("There are ", length(p10k_unannotated), "P10K unannotated genomes")
+
+p10k_stats_red <- select(p10k_stats, p10k_id, completeness)
+colnames(p10k_stats_red) <- c("mnemo", "completeness")
+
+custom_stats <- read_delim("../../DB/new_genomes/results/stats/custom_busco.tsv",
+                           show_col_types = FALSE) %>% 
+  select(file, complete)
+colnames(custom_stats) <- c("mnemo", "completeness")
+
+og <- read_delim(c("results/taxonomies/p10k_taxonomy.tsv", 
+                   "results/taxonomies/eukprot_taxonomy.tsv",
+                   "results/taxonomies/custom_taxonomy.tsv",
+                   "results/taxonomies/uniprot_eukprot_taxonomy.tsv"),
+                 col_names = c("mnemo", "lineage"), delim = "\t", show_col_types = F)
+df <- og %>% 
+    separate(lineage, c("k", "p", "c", "o", "f", "g", "s"), ";") %>% 
+    mutate_all(~gsub("[a-z]__", "", .)) %>%
+    rowwise() %>% 
+    mutate(db = case_when(grepl("^UP", mnemo) ~ "uniprot",
+                          grepl("^EP", mnemo) ~ "eukprot",
+                          grepl("^P10", mnemo) ~ "p10k",
+                          grepl("^CUS", mnemo) ~ "custom"),
+           db = factor(db, levels = c("custom","uniprot", "eukprot", "p10k")))  %>% 
+    left_join(rbind(up_stats, ep_stats, p10k_stats_red, custom_stats), by = "mnemo") %>% 
+    filter(!mnemo %in% p10k_unannotated)
+```
+
+```{r busco, fig.width = 12}
+ggplot(df, aes(p, completeness, fill=db)) +
+  geom_boxplot() +
+  # geom_density(fill="grey", alpha=.2) + 
+  scale_fill_manual(values = color_db) + 
+  theme(legend.position = "bottom")
+```
+
+First of all we can compare the completeness score across phylums and db. Uniprot tends to be higher but this is expected as only good genomes end up there. P10k and eukprot seems comparable even though they are computed differently.
+
+There are **`r nrow(df)`** genomes in these databases. In this report we will explore different filtering measures to reduce redundancy while keeping maximum representation.
+
+```{r remove_dups}
+dup_sps <- df %>% 
+  group_by(p,c,o,f,g,s) %>% 
+  count() %>% 
+  filter(n>1) %>% 
+  pull(s)
+
+df <- df %>% 
+    group_by(k, p, c, o, f, g, s) %>% 
+    arrange(desc(completeness), db) %>% 
+    slice(1) %>% 
+    ungroup()
+
+df %>% 
+    group_by(k, p, c, o, f, g, s) %>% 
+  slice_max(completeness, n = 1, with_ties = FALSE)
+    ungroup()
+
+```
+
+First of all **`r length(unique(dup_sps))`** genomes appear twice in the databases. I checked quickly and we can get the most complete for each species. This still means that there might be duplicated species. Now there are **`r nrow(df)`** eukaryotic genomes.
+
+```{r}
+df %>%
+  group_by(k, p, c, o, f, g) %>% 
+  count() %>% 
+  # filter(n>3)
+  # filter(n>1) %>%
+  mutate(n=ifelse(n>=10, 10, n)) %>% 
+  ggplot(aes(n)) + 
+  geom_histogram(binwidth = 1) + 
+  coord_cartesian(expand = F) +
+  scale_x_continuous(breaks= seq(0,200,1))
+
+df <- df %>% 
+    group_by(k, p, c, o, f, g) %>%
+    slice_max(completeness, n = 3, with_ties = FALSE) %>% 
+    ungroup()
+```
+
+We can also get the top 3 for each genus, some indeed are represented by more than 10 species. After this step there are **`r nrow(df)`** genomes.
+
+```{r raw, fig.width = 10}
+ggplot(df, aes(p, fill=db)) + 
+  geom_bar() + 
+  scale_fill_manual(values = color_db) + 
+  scale_y_continuous(expand = expansion(0,0.01))
+```
+
+We can start by seeing the taxonomic representation of each phylum. We can clearly see that uniprot is overrepresented in amorphea and p10k in diaphoretickes. The other groups are less represented.
+
+
+```{r opistho, fig.width = 10}
+filter(df, c=="Opisthokonta") %>%
+  group_by(db, f) %>%
+  count() %>% 
+  ggplot(aes(n, fct_reorder(f, n), fill=db)) + 
+  geom_bar(stat = "identity", color="black") + 
+  geom_vline(xintercept = 20, color="firebrick", linetype=2) +
+  scale_fill_manual(values = color_db) +
+  labs(y="Family") +
+  scale_x_continuous(expand = expansion(0,0.01))
+
+df_opi <- df %>% 
+    filter(c=="Opisthokonta") %>% 
+    group_by(k, p, c, o, f) %>% 
+    slice_max(n = 20, completeness, with_ties = FALSE)
+
+df <- df %>% filter(c!="Opisthokonta" | mnemo %in% df_opi$mnemo)
+```
+
+For opisthokonta we can consider taking only the best 20 genomes per family so that each family will be almost fully represented except the overrepresented ones.
+
+```{r}
+df %>% 
+  group_by(o, db) %>% 
+  count() %>% 
+  arrange(desc(n)) %>% 
+  filter(n>20) %>% 
+  ggplot(aes(n, fct_reorder(o, n), fill=db)) + 
+  geom_bar(stat="identity") + 
+  scale_x_continuous(expand = expansion(0,0.01)) + 
+  scale_fill_manual(values = color_db) +
+  labs(y="Order") +
+  theme(legend.position = "none")
+```
+
+The other overrepresented groups are ciliates and plants. 
+
+```{r ciliates, fig.width = 10}
+filter(df, o=="Ciliophora") %>%
+  group_by(db, f) %>%
+  count() %>% 
+  ggplot(aes(n, fct_reorder(f, n), fill=db)) + 
+  geom_bar(stat = "identity", color="black") + 
+  geom_vline(xintercept = 20, color="firebrick", linetype=2) +
+  scale_fill_manual(values = color_db) +
+  labs(y="Family") +
+  scale_x_continuous(expand = expansion(0,0.01))
+
+df_ciliates <- df %>% 
+    filter(o=="Ciliophora") %>% 
+    group_by(k, p, c, o, f) %>% 
+    # arrange(desc(completeness)) %>% 
+    slice_max(completeness, n = 20, with_ties=FALSE)
+
+df <- df %>% filter(o!="Ciliophora" | mnemo %in% df_ciliates$mnemo)
+```
+
+We take the most 20 complete per family also in ciliates.
+
+```{r}
+filter(df, o=="Streptophyta") %>%
+  group_by(db, f) %>%
+  count() %>% 
+  ggplot(aes(n, fct_reorder(f, n), fill=db)) + 
+  geom_bar(stat = "identity", color="black") + 
+  geom_vline(xintercept = 20, color="firebrick", linetype=2) +
+  scale_fill_manual(values = color_db) +
+  labs(y="Family") +
+  scale_x_continuous(expand = expansion(0,0.01))
+
+df_embryo <- filter(df, f=="Embryophyta") %>%
+    group_by(k, p, c, o, f) %>% 
+    slice_max(completeness, n = 20, with_ties=FALSE)
+
+df <- df %>% filter(f!="Embryophyta" | mnemo %in% df_embryo$mnemo)
+```
+
+For plants only embryophytes can be reduced to the top 20 most complete genomes.
+
+All these criterias are implemented in `workflow/scripts/filter_tax.R` that is the script included in the smk pipeline.
+
+# TODOs
+
+* explore missing data in taxonomy
+

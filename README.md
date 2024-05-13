@@ -42,7 +42,7 @@ in `config/broaddb.yaml` you can specify:
 
 ## Output files
 
-In `results/db` you will find the repdb fasta (`db/repdb.fa`), blast (`repdb_blast`), diamond (`repdb_diamond`) and mmseqs (`repdb_mmseqs`) databases, all taxonomically annotated.
+In `results/db` you will find the repdb fasta (`db/repdb.fa`), diamond (`repdb_diamond`) and mmseqs (`repdb_mmseqs`) databases, all taxonomically annotated. Blast (`repdb_blast`) is currently not done, uncomment the line in rule all if you want it. This is to avoid space and at the end if you run diamond ultra-sensitive its very similar to blast without needing two dbs.
 
 In `results/meta` various metadata files including QC for every DB and various IDs files. 
 
@@ -62,8 +62,13 @@ You can see the results of this filtering in `results/plots/euka_db.pdf`
 
 ![](resources/euka_db.png)
 
+## Diamond DB
+
+After some updates on diamond the makedb with taxonomy names is not working (2.1.6 is working and 2.1.9 it is not). We can use prepdb from blast but you need the diamond with blast services compiled.
+
 ## TODO
 
+- [ ] Once the maps are used gzip them and remove
 - [ ] Once a new version you could run snakemake --force --until gtdb for example. Now they released new gtdb and test with this!
 - [ ] Implement smarter rule for filtering eukaryotes.
 - [ ] IMPORTANT MANAGE P10K EXCEPTIONS THAT ARE NOT IN UNIEUK! If no match you may keep the p10k as it should not cause conflicts??? Or better check in eukprot if some matches

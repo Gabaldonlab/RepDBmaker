@@ -33,14 +33,12 @@ wget -O {output.ar}  https://data.ace.uq.edu.au/public/gtdb/data/releases/latest
 wget -O {output.bac_meta} https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/bac120_metadata.tsv.gz
 wget -O {output.ar_meta} https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/ar53_metadata.tsv.gz
 
-zcat {output.bac_meta} {output.ar_meta} | awk -F'\\t' 'NR==1 || $16=="t"' > {output.meta}
+zcat {output.bac_meta} {output.ar_meta} | csvtk filter2 -t -f'$gtdb_representative=="t"' > {output.meta}
 
 cat {output.bac} {output.ar} | awk 'BEGIN{{OFS=FS="\\t"}} {{ $1 = substr($1, 4, 13) }} 1' | \
 sed 's/_//' > {output.tax}
 '''
 # | src/filter_gtdb.R
-# | awk -F'\\t' 'NR==1 || $16=="t"'
-# here you could eventually filter
 
 rule get_gtdb_genomes:
     output: "results/tmp/gtdb_proteins_aa_reps.tar.gz"

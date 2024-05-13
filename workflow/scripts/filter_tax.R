@@ -83,8 +83,8 @@ raw <- df %>%
 # first of all remove duplicated species
 df <- df %>% 
     group_by(k, p, c, o, f, g, s) %>% 
-    arrange(desc(completeness), db) %>% 
-    slice(1)
+    slice_max(completeness, n = 1, with_ties = FALSE) %>% 
+  ungroup()
 
 paste("After removing duplicated species there are", nrow(df), "genomes")
 
@@ -102,16 +102,15 @@ no_dup_sps <- df %>%
 
 # genuses that have more than one representative get only the most complete
 reduced_df <- df %>% 
-    group_by(k, p, c, o, f, g) %>% 
-    arrange(desc(completeness), db) %>% 
-    slice(1)
+  group_by(k, p, c, o, f, g) %>%
+  slice_max(completeness, n = 3, with_ties = FALSE) %>% 
+  ungroup()
 # those with no genus are all included
 no_genus <- filter(df, g=="")
 
 df <- filter(df, mnemo %in% union(reduced_df$mnemo, no_genus$mnemo))
 
-paste("After keeping one species per genus there are", nrow(df), "genomes")
-
+paste("After keeping max 3 species per genus there are", nrow(df), "genomes")
 
 no_dup_genus <- df %>%
     # filter(db!="p10k" | o != "Ciliophora") %>% 
@@ -126,31 +125,35 @@ no_dup_genus <- df %>%
     theme(axis.text.y = element_blank())
 
 opi <- df %>% 
-    filter(c=="Opisthokonta") %>% 
-    group_by(k, p, c, o, f) %>% 
-    arrange(desc(completeness), db) %>% 
-    slice_head(n = 20)
+  filter(c=="Opisthokonta") %>% 
+  group_by(k, p, c, o, f) %>% 
+  slice_max(n = 20, completeness, with_ties = FALSE)
+
 opi_nofamily <- filter(df, c=="Opisthokonta", f=="") %>% 
     filter(!mnemo %in% opi$mnemo)
 
 ciliates <- df %>% 
-    filter(o=="Ciliophora") %>% 
-    group_by(k, p, c, o, f) %>% 
-    arrange(desc(completeness), db) %>% 
-    slice_head(n = 20)
+  filter(o=="Ciliophora") %>% 
+  group_by(k, p, c, o, f) %>% 
+  # arrange(desc(completeness)) %>% 
+  slice_max(completeness, n = 20, with_ties=FALSE)
 ciliates_nofamily <- filter(df, o=="Ciliophora", f=="") %>% 
     filter(!mnemo %in% ciliates$mnemo)
 
+embryo <- filter(df, f=="Embryophyta") %>%
+  group_by(k, p, c, o, f) %>% 
+  slice_max(completeness, n = 20, with_ties=FALSE)
 
 df <- df %>% 
     filter(!mnemo %in% manual_keep$mnemo) %>% 
-    filter(c!="Opisthokonta", o!="Ciliophora") %>% 
+    filter(c!="Opisthokonta", o!="Ciliophora", f!="Embryophyta") %>% 
     rbind(opi, opi_nofamily) %>% 
     rbind(ciliates, ciliates_nofamily) %>% 
+    rbind(embryo) %>% 
     rbind(manual_keep) %>% 
     rbind(custom_keep)
 
-paste("After keeping 20 genomes per family of ciliates and opisthokonta and using all the genomes from", 
+paste("After keeping 20 genomes per family of ciliates, opisthokonta and embryophytes and using all the genomes from", 
       paste(to_keep, collapse=","), "there are", nrow(df), "genomes")
 
 final <- df %>%

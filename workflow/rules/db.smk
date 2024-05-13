@@ -95,43 +95,56 @@ rule make_repdb_fasta:
         table=rules.create_repdb_table.output,
         taxdump=rules.create_repdb_taxdump.output.repdb_taxdump
     output:
-        fa="results/db/repdb.fa",
+        fa="results/db/repdb.fa.gz",
         idmap="results/db/repdb_accession_map.txt"
+    # log: "results/log/db/parse.log"
+    benchmark: "results/benchmarks/db/parse.txt"
     script: "../scripts/parse_gnm.py"
 
 rule make_repdb_map:
     input:
         idmap=rules.make_repdb_fasta.output.idmap
     output:
-        headermap="results/db/repdb.map",
-        noheadermap="results/db/repdb_nohead.map"
+        headermap=temp("results/db/repdb.map"),
+        noheadermap=temp("results/db/repdb_nohead.map")
     shell:'''
 echo -e "accession.version\\ttaxid" > {output.headermap}
 cut -f2 {input.idmap} | awk -F'\\t' '{{split($NF, a, "_"); print $0"\\t"a[1]}}' >> {output.headermap}
 awk 'NR>1' {output.headermap} > {output.noheadermap}
 '''
 
+rule compress_repdb_map:
+    input: rules.make_repdb_map.output.headermap
+    output: "results/db/repdb.map.gz"
+    shell: "gzip -k {input}"
+
 rule make_blastdb:
     input: 
         fa=rules.make_repdb_fasta.output.fa,
         taxidmap=rules.make_repdb_map.output.noheadermap
     output: "results/db/repdb_blast"
+    log: "results/log/db/make_blast.log"
+    benchmark: "results/benchmarks/db/make_blast.txt"
     shell:'''
-makeblastdb -in {input.fa} -parse_seqids -taxid_map {input.taxidmap} -dbtype prot -out {output}
+gunzip -c {input.fa} | makeblastdb -in - -parse_seqids -taxid_map {input.taxidmap} \
+-dbtype prot -out {output} -title repdb -logfile {log}
 touch {output}
 '''
 
 rule make_diamonddb:
     input: 
         fa=rules.make_repdb_fasta.output.fa,
-        taxidmap=rules.make_repdb_map.output.headermap,
-        taxdump=rules.create_repdb_taxdump.output.repdb_taxdump
+        taxidmap=rules.make_repdb_map.output.headermap
+        # taxdump=rules.create_repdb_taxdump.output.repdb_taxdump
     output: "results/db/repdb_diamond"
+    log: "results/log/db/make_diamond.log"
+    benchmark: "results/benchmarks/db/make_diamond.txt"
     threads: 48
     shell:'''
-diamond makedb --in {input.fa} -d {output} --taxonmap {input.taxidmap} --taxonnodes {input.taxdump}/nodes.dmp --taxonnames {input.taxdump}/names.dmp --threads {threads}
+diamond makedb --in {input.fa} -d {output} --threads {threads} --taxonmap {input.taxidmap} 2> {log}
 touch {output}
 '''
+# --taxonnodes {input.taxdump}/nodes.dmp --taxonnames {input.taxdump}/names.dmp
 
 rule make_mmseqsdb:
     input: 
@@ -139,8 +152,11 @@ rule make_mmseqsdb:
         taxidmap=rules.make_repdb_map.output.noheadermap,
         taxdump=rules.create_repdb_taxdump.output.repdb_taxdump
     output: "results/db/repdb_mmseqs"
+    log: "results/log/db/make_mmseqs.log"
+    benchmark: "results/benchmarks/db/make_mmseqs.txt"
     threads: 48
     shell:'''
-mmseqs createdb {input.fa} {output}
-mmseqs createtaxdb {output} $TMPDIR --ncbi-tax-dump {input.taxdump} --tax-mapping-file {input.taxidmap} --threads {threads}
+mmseqs createdb {input.fa} {output} > {log}
+mmseqs createtaxdb {output} $TMPDIR --ncbi-tax-dump {input.taxdump} \
+--tax-mapping-file {input.taxidmap} --threads {threads} >> {log}
 '''
