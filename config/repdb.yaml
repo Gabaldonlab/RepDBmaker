@@ -1,3 +1,10 @@
 clades_to_keep: "resources/clades_tokeep.txt"
 genomes_to_exclude: "resources/exclude.txt"
 new_genomes: "/gpfs/projects/bsc40/current/gmutti/DB/new_genomes/euka_genomes.csv"
+
+#mmseqs params for decontamination
+
+mm_identity: 0.85
+mm_coverage: 0.7
+prop_euka: 0.5
+size_cluster: 10

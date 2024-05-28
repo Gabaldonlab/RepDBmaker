@@ -54,6 +54,16 @@ In `results/taxonomies` taxonomies files, for eukaryotes there are both ncbi and
 
 In `results/tmp` different files downloaded from internet that are big and could be deleted, the most important ones are gtdb proteins and EukProt fastas.
 
+## Decontamination 
+
+Ideally eukaryotic contaminants protein should be discarded. This could be dealt it in many ways:
+
+In proteomes you could use a [BASTA](https://github.com/timkahlke/BASTA)-like approach to identify the LCA of proteins. The easiest would be to blast the euka agains the proka and filter the ones with very high identity.
+
+For genomes you could use more sophisticated things such as [TIARA](https://github.com/ibe-uw/tiara), [metaQuast](https://quast.sourceforge.net/metaquast.html), follow the [GENERA pipeline](https://github.com/Lcornet/GENERA/wiki/09.-Genome-quality-assessment#genome-quality-assessment).
+
+To assess the level of contamination you could run [CheckM2](https://github.com/chklovski/CheckM2) or [omark](https://github.com/DessimozLab/OMArk)
+
 ## Filtering Eukaryotes
 
 Instead of adding all eukaryotic genomes there is a step (implemented in `workflow/scripts/filter_tax.R`) to select remove duplicated species, selecting one genome per genus and only considering max 20 genomes per Opisthokonta and Ciliates families (as they are clearly overrepresented). Selecting one genome per genus blindly may be too strict but from 5k genomes we get 2.4k suggesting there is a lot of redundancy. A possible better implementation would be to select one genome per genus only if the representative is complete>70% for example.

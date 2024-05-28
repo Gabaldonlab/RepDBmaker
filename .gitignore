@@ -5,3 +5,5 @@ logs/
 test/
 .snakemake*
 builddb.sh
+workflow/notebooks/*cache/
+workflow/notebooks/*files/

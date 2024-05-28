@@ -13,6 +13,7 @@ include: 'rules/eukprot.smk'
 include: 'rules/uniprot.smk'
 include: 'rules/virus.smk'
 include: 'rules/db.smk'
+include: 'rules/decontaminate.smk'
 
 
 rule all:
@@ -23,4 +24,5 @@ rule all:
         # "results/db/repdb_blast",
         "results/db/repdb_mmseqs",
         "results/meta/repdb_stats.tsv",
-        "results/db/repdb.map.gz"
+        # "results/db/repdb.map.gz",
+        "results/contamination/contaminants.txt"
