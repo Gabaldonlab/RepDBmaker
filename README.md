@@ -78,6 +78,8 @@ After some updates on diamond the makedb with taxonomy names is not working (2.1
 
 ## TODO
 
+- [ ] Add custom meta
+- [ ] Merge all meta in a single meta
 - [ ] Add Conda envs
 - [ ] Once the maps are used gzip them and remove
 - [ ] Once a new version you could run snakemake --force --until gtdb for example. Now they released new gtdb and test with this!
