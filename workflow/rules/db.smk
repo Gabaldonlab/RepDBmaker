@@ -81,15 +81,6 @@ rule create_repdb_table:
 cat {input} > {output}
 '''
 
-rule make_repdb_stats:
-    input: rules.create_repdb_table.output
-    output: "results/meta/repdb_stats.tsv"
-    threads: 48
-    shell:'''
-cut -f1 {input} | seqkit stats -j {threads} --infile-list - -T -b | \
-cut -f1,4- | sed 's/.faa.gz//' > {output}
-'''
-
 rule make_repdb_fasta:
     input:
         table=rules.create_repdb_table.output,

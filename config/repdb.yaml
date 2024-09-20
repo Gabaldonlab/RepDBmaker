@@ -1,6 +1,7 @@
 clades_to_keep: "resources/clades_tokeep.txt"
 genomes_to_exclude: "resources/exclude.txt"
 new_genomes: "/gpfs/projects/bsc40/current/gmutti/DB/new_genomes/euka_genomes.csv"
+new_genomes_busco: "/gpfs/projects/bsc40/current/gmutti/DB/new_genomes/results/stats/custom_busco.tsv"
 
 #mmseqs params for decontamination
 
