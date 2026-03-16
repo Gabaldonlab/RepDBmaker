@@ -2,9 +2,22 @@ rule make_repdb_stats:
     input: rules.create_repdb_table.output
     output: "results/meta/repdb_stats.tsv"
     threads: 48
+    conda: "../envs/utils.yaml"
+    localrule: True
     shell:'''
 cut -f1 {input} | seqkit stats -j {threads} --infile-list - -T -b | \
 cut -f1,4- | sed 's/.faa.gz//' > {output}
+'''
+
+rule make_clust_repdb_stats:
+    input: repr_all_classes
+    output: "results/meta/clustered_repdb_stats.tsv"
+    threads: 48
+    conda: "../envs/utils.yaml"
+    localrule: True
+    shell:'''
+seqkit stats -j {threads} -T -b {input} | \
+cut -f1,4- | sed 's/_rep_seq.fasta//' > {output}
 '''
 
 
@@ -22,5 +35,7 @@ rule make_repdb_meta:
     output: "results/meta/repdb_meta.tsv"
     # log: "results/log/db/parse.log"
     # benchmark: "results/benchmarks/db/parse.txt"
+    conda: "../envs/R.yaml"
+    localrule: True
     script: "../scripts/analyze_stats.R"
 

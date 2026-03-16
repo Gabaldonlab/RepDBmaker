@@ -5,6 +5,8 @@ rule get_p10k_tax:
         ep=rules.get_eukprot.output.euk_included,
         notep=rules.get_eukprot.output.euk_excluded
     output: "results/taxonomies/p10k_taxonomy.tsv"
+    conda: "../envs/R.yaml"
+    localrule: True
     script: "../scripts/get_tax.R"
 #     shell: '''
 # cat {input.p10k} | Rscript src/get_p10k_tax.R -u {input.unieuk} --ep {input.ep} --notep {input.notep} > {output}
@@ -18,6 +20,7 @@ def p10k_to_extract(wildcards):
 
 rule get_p10k_genomes:
     output: "results/proteomes/p10k/{genome}.faa.gz"
+    localrule: True
     shell:'''
 wget -O - https://ngdc.cncb.ac.cn/p10k/static/Protein/{wildcards.genome}_protein.fa | gzip > {output}
 '''
@@ -25,6 +28,7 @@ wget -O - https://ngdc.cncb.ac.cn/p10k/static/Protein/{wildcards.genome}_protein
 rule create_p10k_table:
     input: p10k_to_extract
     output: "results/meta/p10k_genome_table.tsv"
+    localrule: True
     shell:'''
 > {output}
 for genome in {input}; do

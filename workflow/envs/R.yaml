@@ -1,0 +1,22 @@
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - bioconductor-biostrings
+  - bioconductor-complexheatmap
+  - bioconductor-ggtree
+  - bioconductor-ggtreeextra
+  - bioconductor-ggmsa
+  - r-adephylo
+  - r-ape
+  - r-circlize
+  - r-data.table
+  - r-ggally
+  - r-ggh4x
+  - r-ggnewscale
+  - r-ggrepel
+  - r-janitor
+  - r-patchwork
+  - r-phytools
+  - r-tidyverse
+  - r-wesanderson

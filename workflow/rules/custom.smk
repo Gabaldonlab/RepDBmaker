@@ -3,8 +3,10 @@
 rule get_custom_tax:
     input: config["new_genomes"]
     output: "results/taxonomies/custom_taxonomy.tsv"
+    conda: "../envs/utils.yaml"
+    localrule: True
     shell:'''
-cut -f1,4 {input} | awk 'NR>1' > {output}
+csvtk cut -t -f ID,Lineage {input} | awk 'NR>1' > {output}
 '''
 
 def custom_to_extract(wildcards):
@@ -17,14 +19,16 @@ rule get_custom_genomes:
     input:
         custom_table=config["new_genomes"]
     output: "results/proteomes/cus/{genome}.faa.gz"
+    localrule: True
     shell:'''
-file=$(grep {wildcards.genome} {input.custom_table} | cut -f3)
+file=$(grep {wildcards.genome} {input.custom_table} | cut -f4)
 cat $file | gzip > {output} 
 '''
 
 rule create_custom_table:
     input: custom_to_extract
     output: "results/meta/cus_genome_table.tsv"
+    localrule: True
     shell:'''
 > {output}
 for genome in {input}; do

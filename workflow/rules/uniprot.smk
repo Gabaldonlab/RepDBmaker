@@ -5,6 +5,8 @@ rule get_uniprot_tax:
         ep=rules.get_eukprot.output.euk_included,
         notep=rules.get_eukprot.output.euk_excluded
     output: "results/taxonomies/uniprot_eukprot_taxonomy.tsv"
+    conda: "../envs/R.yaml"
+    localrule: True
     script: "../scripts/get_tax.R"
 
 def uniprot_to_extract(wildcards):
@@ -16,6 +18,7 @@ rule get_uniprot_genomes:
     input:
         up=rules.get_uniprot_meta.output.meta,
     output: "results/proteomes/up/{genome}.faa.gz"
+    localrule: True
     shell:'''
 taxid=$(grep {wildcards.genome} {input.up} | cut -f2)
 wget -nc "https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/Eukaryota/{wildcards.genome}/{wildcards.genome}_$taxid.fasta.gz" \
@@ -25,6 +28,7 @@ wget -nc "https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledg
 rule create_uniprot_table:
     input: uniprot_to_extract
     output: "results/meta/up_genome_table.tsv"
+    localrule: True
     shell:'''
 > {output}
 for genome in {input}; do

@@ -13,6 +13,7 @@ include: 'rules/eukprot.smk'
 include: 'rules/uniprot.smk'
 include: 'rules/virus.smk'
 include: 'rules/db.smk'
+include: 'rules/cluster.smk'
 include: 'rules/decontaminate.smk'
 include: 'rules/stats.smk'
 
@@ -21,10 +22,13 @@ rule all:
     input:
         "results/meta/check_resources.txt",
         "results/taxonomies/all_eukaryotes.tsv",
-        "results/db/repdb_diamond",
+        expand("results/{clust}/repdb_diamond", clust = ["clustered_db", "db"]),
+        expand("results/{clust}/repdb_mmseqs", clust = ["clustered_db", "db"]),
         # "results/db/repdb_blast",
-        "results/db/repdb_mmseqs",
         # "results/meta/repdb_stats.tsv",
         # "results/db/repdb.map.gz",
         "results/contamination/contaminants.txt",
-        "results/meta/repdb_meta.tsv"
+        "results/meta/repdb_meta.tsv",
+        "results/meta/clustered_repdb_stats.tsv",
+        "results/contamination/pair_counts.tsv",
+        # "results/contamination/viral_cluster.tsv"

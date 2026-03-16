@@ -3,42 +3,39 @@
 # import argparse
 import string
 import gzip
+import concurrent.futures
 
 alph = string.ascii_uppercase
 
 def clean_seq(seq):
-    oseq = seq.replace('J', 'X').replace('B', 'X').replace('O', 'X')
-    oseq = oseq.replace('U', 'X').replace('Z', 'X').replace('*', '')
-
-    return oseq
+    """Replace ambiguous amino acids and remove stop codons."""
+    return seq.replace('J', 'X').replace('B', 'X').replace('O', 'X') \
+              .replace('U', 'X').replace('Z', 'X').replace('*', '')
 
 def openfile(filename):
-    if filename.endswith('.gz'):
-        return gzip.open(filename, 'rt') 
-    else:
-        return open(filename, 'r')
+    """Open plain or gzipped FASTA file."""
+    return gzip.open(filename, 'rt') if filename.endswith('.gz') else open(filename, 'r')
+
 
 def read_fasta(fafile):
+    """Read sequences from a FASTA file into a dict."""
     seqs = {}
     seqid = ''
-
+    s = []
     with openfile(fafile) as infile:
         for line in infile:
-            line = line.replace('\n', '')
-            if '>' in line:
-                if seqid == '':
-                    seqid = line.split(' ')[0].split('\t')[0].replace('>', '')
-                    s = []
-                else:
+            line = line.rstrip('\n')
+            if line.startswith('>'):
+                if seqid:
                     seqs[seqid] = clean_seq(''.join(s))
-                    seqid = line.split(' ')[0].split('\t')[0].replace('>', '')
-                    s = []
+                seqid = line.split(' ')[0].split('\t')[0][1:]
+                s = []
             else:
                 s.append(line)
-        if len(s) > 0:
+        if seqid and s:
             seqs[seqid] = clean_seq(''.join(s))
+    return seqs
 
-    return(seqs)
 
 def write_fasta(seqs, rename=False, taxid=None, taxiddic = None, virus=False, filename=None,
                 seqlen=60, ofilenm=None, append=True, mapfile=None, ogfile=None):
@@ -98,47 +95,26 @@ def write_fasta(seqs, rename=False, taxid=None, taxiddic = None, virus=False, fi
 
 # TaxID, filename, prot_id (internal)
 
-
-
-# Parse data
-# parser = argparse.ArgumentParser(
-#     description="Create a fasta file for BroadDB with coded ids starting from the input table"
-# )
-
-# parser.add_argument("-i", "--input", default="None", 
-#                     help="input table",required=True)
-# parser.add_argument("-t", "--taxid", default="None", 
-#                     help="taxid map",required=True)
-# parser.add_argument("-o", "--out", default="None", 
-#                     help="output fasta fil",required=True)
-# parser.add_argument("-m", "--map", default="None", 
-#                     help="output map file",required=True)
-
-# input_table = 'data/meta/broaddb_genome_table.tsv'
-# broaddb_map = 'data/taxdump/broaddb_taxdump/taxid.map'
-# ofilenm = 'test/test.fa'
-# ofilemap = 'test/id.map'
+def process_line(line, taxids, snakemake_output0, snakemake_output1):
+    file, filenm = line.split()[0], line.split()[1]
+    print(f'Processing: {file}', flush=True)
+    seqs = read_fasta(file)
+    write_fasta(seqs, True,
+                taxid=taxids[filenm],
+                filename=filenm, ofilenm=snakemake_output0, append=True,
+                mapfile=snakemake_output1, ogfile=file)
 
 if __name__ == '__main__':
     # args = parser.parse_args()
-    mapfile = snakemake.input[1]+"/taxid.map"
+    mapfile = f"{snakemake.input[1]}/taxid.map"
     taxids = {x.split('\t')[0]: x.split('\t')[1].replace('\n', '') for x in open(mapfile)}
-
+    num_threads = snakemake.threads
     open(snakemake.output[0], 'w').close()
     open(snakemake.output[1], 'w').close()
+    lines = []
     with open(snakemake.input[0]) as table:
         for line in table:
-            file = line.split()[0]
-            filenm = line.split()[1]
-            print('Processing: %s' % file, flush=True)
-            seqs = read_fasta(file)
-            if filenm == "C-RVDB":
-                write_fasta(seqs, True, 
-                            taxiddic = taxids, virus=True,
-                            filename=filenm, ofilenm=snakemake.output[0], append=True, 
-                            mapfile=snakemake.output[1], ogfile=file)
-            else:
-                write_fasta(seqs, True, 
-                            taxid=taxids[filenm],
-                            filename=filenm, ofilenm=snakemake.output[0], append=True, 
-                            mapfile=snakemake.output[1], ogfile=file)
+            lines.append(line)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures = [executor.submit(process_line, line, taxids, snakemake.output[0], snakemake.output[1]) for line in lines]
+        concurrent.futures.wait(futures)

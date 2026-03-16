@@ -4,8 +4,36 @@ new_genomes: "/gpfs/projects/bsc40/current/gmutti/DB/new_genomes/euka_genomes.cs
 new_genomes_busco: "/gpfs/projects/bsc40/current/gmutti/DB/new_genomes/results/stats/custom_busco.tsv"
 
 #mmseqs params for decontamination
+decontamination:
+  identity: 0.9
+  coverage: 0.5
+  cov_mode: 3
+  prop_euka: 0.5
+  # size_cluster: 10
 
-mm_identity: 0.85
-mm_coverage: 0.7
-prop_euka: 0.5
-size_cluster: 10
+clustering:
+  identity: 0.9
+  coverage: 0.9
+  # the clustering level could also be a parameter but I need to change
+  # filename strcutre so the params are in the wildcards :( 
+
+benchmark:
+  dbs: 
+    nr:
+      dmnd: "/gpfs/projects/bsc40/databases/nr/nr"
+      mmseqs: "/gpfs/projects/bsc40/databases/nr/nr_mmseqs"
+    clustnr:
+      dmnd: "/gpfs/projects/bsc40/databases/nr_cluster/nr_cluster_seq"
+      mmseqs: "/gpfs/projects/bsc40/databases/nr_cluster/nr_cluster_mmseqs"
+    repdb:
+      dmnd: "results/db/repdb_diamond"
+      mmseqs:  "results/db/repdb_mmseqs"
+    clustrepdb:
+      dmnd: "results/clustered_db/repdb_diamond"
+      mmseqs: "results/clustered_db/repdb_mmseqs"
+  tax_annot: "resources/Cohen_2024/merged.fasta.transdecoder-estimated-taxonomy.LCA.phyloDB.within3percent.AddRef.RefSeq.out"
+  source_seqs: "resources/Cohen_2024/merged.fasta.transdecoder.pep"
+  n_seqs: 500
+  lca_mode: 3
+#   nr: "/gpfs/projects/bsc40/databases/nr/nr" # check that this is real!!
+#   clust_nr: "/gpfs/projects/bsc40/databases/nr_cluster/nr_cluster_seq"

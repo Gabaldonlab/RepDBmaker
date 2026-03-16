@@ -1,0 +1,940 @@
+---
+title: "RepDB EDA"
+date: "`r format(Sys.time(), '%d-%b-%Y')`"
+author: "Giacomo Mutti"
+output:
+    rmdformats::html_clean:
+        number_sections: false
+        code_folding: hide
+        self_contained: true
+        fig_caption: true
+        # thumbnails: false
+        # lightbox: false
+        gallery: true
+        toc_depth: 3
+        highlight: kate
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = FALSE, warning = FALSE)
+knitr::knit_hooks$set(crop = knitr::hook_pdfcrop)
+knitr::opts_chunk$set(crop = TRUE)
+```
+
+```{r libs}
+suppressPackageStartupMessages(library(tidyverse))
+library(ggtree)
+library(ggtreeExtra)
+library(ape)
+library(phytools)
+library(patchwork)
+library(tidyheatmaps)
+library(WeightedTreemaps)
+theme_set(theme_classic())
+source("workflow/scripts/functions.R")
+source("workflow/scripts/palettes.R")
+```
+
+# EDA
+
+```{r euka_completeness}
+cus_stats <- read_delim("../../DB/new_genomes/results/stats/custom_busco.tsv") %>%
+  mutate(strategy = NA) %>%
+  select(file, complete, strategy) %>%
+  rename("mnemo" = "file", "busco_complete" = "complete")
+up_stats <- read_delim("results/meta/uniprot_busco.tsv", show_col_types = F) %>%
+  janitor::clean_names() %>%
+  mutate(busco_complete = parse_number(gsub("\\[.*", "", busco))) %>%
+  select(proteome_id, busco_complete) %>%
+  mutate(strategy = "genome") %>%
+  rename("mnemo" = "proteome_id")
+ep <- read_delim("../repdb/results/meta/EukProt_included.tsv", show_col_types = F)
+ep_stats <- read_delim("results/meta/EukProt_busco.tsv", show_col_types = F) %>%
+  mutate(mnemo = gsub("_.*", "", Input_file)) %>%
+  select(mnemo, Complete) %>%
+  left_join(select(ep, c(EukProt_ID, Data_Source_Type)), by = c("mnemo" = "EukProt_ID")) %>%
+  rename("busco_complete" = "Complete", "strategy" = "Data_Source_Type")
+p10k_stats <- read_delim("results/meta/p10k_meta.tsv", show_col_types = F) %>%
+  filter(n_genes != -1) %>%
+  select(p10k_id, completeness, strategy) %>%
+  mutate(strategy = gsub(
+    "single cell", "single-cell",
+    gsub("\\ \\(.*", "", str_to_lower(strategy))
+  )) %>%
+  rename("mnemo" = "p10k_id", "busco_complete" = "completeness")
+
+euka_conts <- readLines("results/contamination/contaminants.txt") %>%
+  str_split_i("_", 2) %>%
+  table() %>%
+  enframe(name = "mnemo", value = "n_conts") %>%
+  mutate(n_conts = as.numeric(n_conts))
+
+euka_busco <- bind_rows(cus_stats, ep_stats, up_stats, p10k_stats) %>%
+  left_join(euka_conts)
+```
+
+
+```{r parse_data}
+tax <- read_delim("results/taxonomies/repdb.tsv",
+  col_names = c("mnemo", "k", "p", "c", "o", "f", "g", "s")
+)
+stats <- read_delim("results/meta/repdb_stats.tsv")
+clust_stats <- read_delim("results/meta/clustered_repdb_stats.tsv") %>%
+  mutate(db = "clust_repdb") %>%
+  rename("c" = "file")
+
+virus_meta <- read_delim("resources/ncbi_virus_metadata.tsv") %>%
+  mutate(mnemo = gsub("_|\\..*", "", Assembly))
+virus_groups <- read_delim("results/meta/refseq_virus_groups.tsv",
+  col_names = c("realm", "kingdom", "p")
+) %>%
+  filter(!is.na(kingdom))
+
+gtdb <- read_delim("results/meta/gtdb_meta.tsv")
+gtdb <- gtdb %>%
+  select(
+    accession, checkm2_completeness, checkm2_contamination,
+    # gc_percentage,
+    ncbi_assembly_level
+  ) %>%
+  # head() %>%
+  mutate(mnemo = gsub("^GB|^RS|\\..*", "", gsub("_", "", accession)))
+
+repdb_df <- tax %>%
+  left_join(select(stats, file, num_seqs), by = c("mnemo" = "file")) %>%
+  mutate(db = "repdb") %>%
+  left_join(gtdb) %>%
+  left_join(euka_busco) %>%
+  mutate(
+    label = case_when(
+      k %in% c("Bacteria", "Archaea") ~ p,
+      k %in% c("Eukaryota", "Viruses") ~ c
+    ),
+    type = case_when(
+      k %in% c("Bacteria", "Archaea") ~ ncbi_assembly_level,
+      k == "Eukaryota" ~ strategy
+    ),
+    completeness = case_when(
+      k %in% c("Bacteria", "Archaea") ~ checkm2_completeness,
+      k == "Eukaryota" ~ busco_complete
+    ),
+    mmseqs_contamination = n_conts / num_seqs * 100,
+    contamination = case_when(
+      k %in% c("Bacteria", "Archaea") ~ checkm2_contamination,
+      k == "Eukaryota" ~ mmseqs_contamination
+    )
+  )
+```
+
+<!-- ```{r abundance} -->
+<!-- repdb_df %>% -->
+<!--   filter(k == "Eukaryota") %>% -->
+<!--   group_by(p, c) %>% -->
+<!--   summarise(num_seqs = sum(num_seqs)) %>%  -->
+<!--   ggplot(aes(num_seqs, fct_reorder(c, num_seqs))) + -->
+<!--   facet_grid(p ~ ., scales = "free", space = "free") + -->
+<!--   geom_bar(stat = "identity", position = "dodge") + -->
+<!--   geom_text(aes(label = num_seqs, x = 0), -->
+<!--     hjust = 1, -->
+<!--     position = position_dodge(width = .9), size = 2 -->
+<!--   ) -->
+<!-- ``` -->
+
+### Repdb Tree
+
+```{r metrics}
+repdb_df %>%
+  group_by(k) %>%
+  summarise(n = sum(num_seqs) / 1e6, 
+            n_prot = n_distinct(mnemo),
+            mn = mean(completeness),
+            sd = sd(completeness))
+
+
+repdb_df %>% 
+  filter(k %in% c("Bacteria", "Archaea")) %>% 
+  count(type) %>% 
+  mutate(prop = n/sum(n)*100) %>% 
+  arrange(desc(prop))
+
+repdb_df %>% 
+  filter(k=="Viruses") %>% 
+  mutate(iscaudo = c=="Caudoviricetes") %>% 
+  group_by(iscaudo) %>% 
+  summarise(num_seqs = sum(num_seqs), 
+            n = n(), 
+            n_sp = n_distinct(s)) %>% 
+  mutate(freq_seqs = num_seqs/sum(num_seqs)*100,
+         freq_sps = n_sp/sum(n_sp)*100)
+
+
+virus_meta %>% 
+  # filter(c=="Megaviricetes") %>% 
+  mutate(is_nc = p=="Nucleocytoviricota") %>%
+  group_by(is_nc) %>% 
+  summarise(n = n(), n_seqs = sum(num_seqs)) %>%  
+  mutate(n/sum(n)*100, n_seqs/sum(n_seqs)*100)
+```
+
+
+```{r tree}
+artree <- read.tree("test/tree/ar53_reduced.tree")
+bactree <- read.tree("test/tree/bac120_reduced.tree")
+euktree <- read.tree("resources/etol.nwk")
+
+virus_meta <- repdb_df %>%
+  filter(k == "Viruses") %>%
+  select(mnemo, k, p, c, num_seqs, label) %>%
+  left_join(virus_groups) %>%
+  left_join(virus_meta)
+
+v_fct <- virus_meta %>%
+  distinct(k, realm, kingdom, p, c) %>%
+  filter(
+    !grepl("unclassi", p),
+    !grepl("unclassi", c)
+  ) %>%
+  mutate_if(is.character, as.factor)
+
+virtree <- as.phylo.formula(~ k / realm / kingdom / p / c, data = v_fct)
+
+tmp <- bind.tip(bactree, tip.label = "archaea", where = length(bactree$tip.label) + 1)
+tmp <- root(tmp, "archaea", resolve.root = T)
+tmp <- bind.tree(tmp, artree, where = which(tmp$tip.label == "archaea"))
+tmp <- bind.tip(tmp, tip.label = "euk", where = which(grepl("Asgardarchaeota", tmp$tip.label)))
+eukaproka_tree <- bind.tree(tmp, euktree, where = which(tmp$tip.label == "euk"))
+tmp <- bind.tip(eukaproka_tree, tip.label = "vir", where = length(tmp$tip.label) + 1)
+tmp <- root(tmp, "vir", resolve.root = T)
+repdb_classtree <- bind.tree(tmp, virtree, where = which(tmp$tip.label == "vir"))
+
+p_order <- fortify(repdb_classtree) %>%
+  filter(isTip) %>%
+  arrange(desc(y)) %>%
+  pull(label)
+```
+
+```{r fig1-params}
+tl <- 31.75
+x_lab <- 10.5
+min_x <- -15
+offsets <- c(0.575, 0.005)
+size_bar <- 2.5
+offset_tm <- 0.363
+```
+
+
+```{r fig1}
+repdb_summary <- repdb_df %>%
+  group_by(label) %>%
+  summarise(
+    n_seqs = sum(num_seqs),
+    n_gen = n_distinct(mnemo)
+  ) %>%
+  mutate(n_seqs_t = signif(n_seqs / 1e6, 2))
+
+type_df <- repdb_df %>%
+  count(label, type) %>%
+  mutate(type = factor(type, levels = rev(names(c(ass_palette, type_palette))))) %>%
+  group_by(label) %>%
+  arrange(type, .by_group = TRUE) %>%
+  mutate(
+    freq  = n / sum(n),
+    ymax  = tl + cumsum(freq), # 'end' in your code
+    ymin  = lag(ymax, default = tl) # 'start' in your code
+  ) %>%
+  ungroup()
+p1 <- eukaproka_tree %>%
+  fortify() %>%
+  left_join(repdb_summary) %>%
+  ggtree(layout = "circular") +
+  geom_tiplab(size = 1.9, hjust = 0, color = "grey20") +
+  # geom_label(aes(label=label, angle=angle),
+  #            data = . %>% filter(isTip),
+  #            size = 1.5, hjust = 0, color="white", fill="black") +
+  # geom_nodelab() +
+  geom_label(
+    aes(
+      angle = angle,
+      label = n_seqs_t, fill = n_seqs,
+      x = max(fortify(eukaproka_tree)$x) + x_lab
+    ),
+    show.legend = F,
+    size = 1.5,
+    color = "white",
+    hjust = 1,
+    vjust = .5
+  ) +
+  scale_x_continuous(limits = c(min_x, NA)) +
+  scale_fill_viridis_c(trans = "log")
+# p1 <- rotate_tree(p1, 270)
+
+
+p2 <- p1 +
+  ggnewscale::new_scale_fill() +
+  geom_fruit(
+    data = repdb_df,
+    geom = geom_boxplot,
+    mapping = aes(
+      y = label,
+      x = contamination,
+      group = label,
+      fill = k
+    ),
+    orientation = "y",
+    offset = offsets[1],
+    size = .1,
+    outlier.size = 0.2,
+    outlier.stroke = 0.08,
+    pwidth = 0.1,
+    axis.params = list(
+      axis       = "x",
+      text.size  = 1,
+      hjust      = 1,
+      vjust      = 1,
+      nbreak     = 3,
+      # title = "Contamination",
+      # title.size=2,
+      # title.angle=90
+    ),
+    grid.params = list()
+  ) +
+  geom_fruit(
+    data = repdb_df,
+    geom = geom_boxplot,
+    mapping = aes(
+      y = label,
+      x = completeness,
+      group = label,
+      fill = k
+    ),
+    orientation = "y",
+    offset = offsets[2],
+    size = .1,
+    pwidth = 0.1,
+    outlier.size = 0.2,
+    outlier.stroke = 0.08,
+    axis.params = list(
+      axis       = "x",
+      text.size  = 1,
+      hjust      = 1,
+      vjust      = 1,
+      nbreak     = 3,
+      # title = "Completeness",
+      # title.size=2,
+      # title.angle=90
+    ),
+    grid.params = list()
+  ) +
+  scale_fill_manual(values = color_kingdoms) +
+  ggnewscale::new_scale_fill() +
+  geom_fruit(
+    mapping = aes(y = label, xmin = ymin, xmax = ymax, color = type),
+    size = size_bar,
+    data = type_df,
+    geom = geom_linerange,
+    show.legend = FALSE
+  ) +
+  scale_color_manual(values = c(ass_palette, type_palette)) +
+  theme(legend.position = "none")
+```
+
+```{r add-legend}
+p_k <- color_kingdoms %>%
+  enframe() %>%
+  mutate(y = 1) %>%
+  ggplot(aes(name, y, fill = value)) +
+  geom_tile() +
+  scale_fill_identity() +
+  coord_cartesian(ratio = 1) +
+  labs(subtitle = "Kingdom") +
+  theme_legend
+
+p_type <- c(type_palette, ass_palette) %>%
+  enframe() %>%
+  filter(name != "transcriptome,EST") %>%
+  mutate(y = 1, order = 1:nrow(.)) %>%
+  ggplot(aes(fct_reorder(name, order), y, fill = value)) +
+  geom_tile() +
+  scale_fill_identity() +
+  coord_cartesian(ratio = 1) +
+  labs(subtitle = "Data Type") +
+  theme_legend
+
+p_legend <- p_k | p_type
+
+p3 <- p2 + inset_element(p_legend,
+  left = 0.1,
+  bottom = -.05,
+  right = 0.45,
+  top = 0.16,
+  align_to = "full",
+  clip = FALSE
+)
+```
+
+```{r add-treemap}
+repdb_counts <- repdb_df %>% 
+  group_by(k, label) %>% 
+  summarise(n = sum(num_seqs),
+            # mn=mean(num_seqs), var=var(num_seqs), 
+            .groups = "drop")
+
+tm <- voronoiTreemap(
+  data = filter(repdb_counts, n>10000),
+  levels = c("k", "label"),
+  cell_size = "n",
+  shape = "circle",
+  seed = 123
+)
+
+pdf(NULL)
+drawTreemap(tm, 
+            label_size = 1, 
+            color_palette = color_kingdoms[unique(repdb_counts$k)],
+            label_color = "grey90", 
+            border_level = c(1,2),
+            border_color = c("black", "grey20"),
+            border_size = c(2, 0.5),
+            width = 0.8, height = 0.8) 
+p_tm <- grid::grid.grab()
+dev.off()
+
+p4 <- p3 + inset_element(p_tm,
+  left = offset_tm,
+  bottom = offset_tm,
+  right = 1-offset_tm,
+  top = 1-offset_tm,
+  align_to = "full",
+  clip = FALSE
+) + 
+  theme(
+    plot.background = element_blank(),
+    panel.background = element_blank()
+  )
+
+ggsave("results/plots/repdb_tree.pdf", p4, width = 11, height = 11)
+# p4
+ggsave("/data/drive/repdb/figures/Fig1.pdf", p4, width = 11, height = 11)
+```
+
+### Viral tree
+
+```{r virtree}
+virtype_df <- repdb_df %>%
+  filter(k == "Viruses") %>%
+  left_join(virus_meta) %>%
+  mutate(
+    Molecule_type = ifelse(is.na(Molecule_type), "unknown", Molecule_type),
+    Molecule_type = factor(Molecule_type, levels = names(virus_colors))
+  ) %>%
+  group_by(label, Molecule_type) %>%
+  summarise(n = n()) %>%
+  mutate(freq = n / sum(n)) %>%
+  ungroup()
+
+pvir1 <- virtree %>%
+  fortify() %>%
+  left_join(repdb_summary) %>%
+  ggtree(size = .2) +
+  geom_tiplab(size = 2, hjust = 0, color = "grey20") +
+  geom_nodelab(size = 1, color = "firebrick", hjust = 1.1, vjust = -.7) +
+  geom_label(
+    aes(
+      # angle = angle,
+      label = n_seqs, fill = n_seqs,
+      x = max(fortify(virtree)$x + 3)
+    ),
+    show.legend = F,
+    size = 1.5,
+    color = "white",
+    hjust = 1,
+    vjust = .5
+  ) +
+  # scale_x_continuous(limits = c(.01,12)) + # Do something like this if you
+  # don't want to show a common viral origin
+  scale_fill_viridis_c(trans = "log")
+
+
+pvir2 <- pvir1 +
+  ggnewscale::new_scale_fill() +
+  geom_fruit(
+    data = virtype_df,
+    geom = geom_bar,
+    stat = "identity",
+    mapping = aes(
+      y = label,
+      x = freq,
+      group = label,
+      fill = Molecule_type
+    ),
+    orientation = "y",
+    offset = .77,
+    pwidth = .5,
+    axis.params = list(
+      axis = "x",
+      text.size = 1,
+      hjust = 1,
+      vjust = 1,
+      nbreak = 3,
+      title = "Virus Type",
+      title.size = 2,
+      title.height = 0.04,
+      title.color = "grey10"
+    )
+  ) +
+  geom_fruit(
+    data = repdb_df,
+    geom = geom_boxplot,
+    mapping = aes(
+      y = label,
+      x = log10(num_seqs),
+      group = label,
+    ),
+    fill = color_kingdoms["Viruses"],
+    orientation = "y",
+    offset = 0.05,
+    size = .1,
+    outlier.size = 0.2,
+    outlier.stroke = 0.08,
+    pwidth = 1,
+    axis.params = list(
+      axis = "x",
+      text.size = 1,
+      hjust = 1,
+      vjust = 1,
+      nbreak = 5,
+      title = "log10(# Seqs)",
+      title.size = 2,
+      title.height = 0.04,
+      title.color = "grey10"
+    ),
+    grid.params = list()
+  ) +
+  scale_fill_manual(values = virus_colors) +
+  labs(fill = "Molecule Type") +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(size = 5),
+    legend.key.size = unit(2, "mm"),
+    legend.text = element_text(size = 4, margin = margin(l = 0.1)),
+    legend.key.spacing.y = unit(0, "mm"),
+    legend.box.spacing = unit(0, "mm")
+  )
+
+ggsave("results/plots/virtree.pdf", pvir2, width = 4.3, height = 4.5)
+ggsave("/data/drive/repdb/figures/FigS1.pdf", pvir2, width = 4.3, height = 4.5)
+```
+
+To obtain the count for NR I did this
+
+```{bash, eval=FALSE, engine="sh"}
+cd /gpfs/projects/bsc40/databases/nr
+
+blastdbcmd -db nr -entry all -outfmt "%a %T" > nr.fna.taxidmapping
+
+LC_ALL=C awk -F' ' '{count[$2]++} END {for (i in count) print i"\t"count[i]}' nr.fna.taxidmapping | taxonkit reformat -I 1 -f "{C}\t{a}\t{r}\t{d}\t{p}\t{c}\t{o}\t{f}" --data-dir taxonomy > nr_taxid_counts_tax.tsv 
+
+echo 562 | taxonkit list  | grep . > ecoli.ids
+```
+
+```{r gini, fig.width = 6, fig.height = 4}
+nr_num <- read_delim("/gpfs/projects/bsc40/databases/nr/nr_taxid_counts_tax.tsv",
+  col_names = c(
+    "taxid", "n",
+    "cell", "acell", "r",
+    "k", "p", "c", "o", "f"
+  )
+) %>%
+  filter(!is.na(cell) | !is.na(acell)) %>%
+  mutate(k = case_when(acell == "Viruses" ~ acell, .default = k), db = "nr") %>%
+  select(-acell, -r, -cell)
+
+nr_orders <- nr_num %>%
+  group_by(k, p, c, o) %>%
+  # filter(!is.na(o)) %>%
+  summarise(n = sum(n)) %>%
+  mutate(db = "nr") %>%
+  ungroup()
+
+repdb_orders <- repdb_df %>%
+  group_by(k, p, c, o) %>%
+  # filter(!is.na(o)) %>%
+  summarise(n = sum(num_seqs)) %>%
+  mutate(db = "repdb") %>%
+  ungroup()
+
+plot_lorenz <- bind_rows(nr_orders, repdb_orders) %>%
+  group_by(k, db) %>%
+  arrange(n) %>%
+  mutate(
+    rank = row_number(n) / n(),
+    cs = cumsum(n) / sum(n)
+  ) %>%
+  ggplot(aes(x = rank, y = cs, color = k, linetype = db)) +
+  geom_line() +
+  geom_abline(intercept = 0, slope = 1) +
+  coord_fixed() +
+  labs(x = "Rank", y = "Cum. proportion of sequences") +
+  scale_color_manual(values = color_kingdoms) +
+  scale_linetype_manual(values = c(4, 1)) +
+  theme(legend.position = c(0.15, 0.65))
+
+gini_df <- bind_rows(nr_orders, repdb_orders) %>%
+  group_by(k, db) %>%
+  summarise(
+    gini_index = gini(n),
+    .groups = "drop"
+  )
+
+plot_gini <- ggplot(gini_df, aes(db, gini_index, fill = k)) +
+  geom_line(aes(group = k), color = "grey40", linetype = 2) +
+  geom_point(pch = 21, size = 3) +
+  scale_fill_manual(values = color_kingdoms) +
+  theme(legend.position = "none") +
+  labs(x = "", y = "Gini Index")
+
+
+plot_gini_def <- (plot_lorenz | plot_gini) + plot_layout(widths = c(3, 1))
+plot_gini_def
+ggsave("/data/drive/repdb/figures/FigGini.pdf", plot_gini_def, width = 6, height = 4)
+```
+
+```{r clust_or_not}
+clustnr_num <- read_delim("/gpfs/projects/bsc40/databases/nr_cluster/clustnr_taxid_counts_tax.tsv",
+  col_names = c(
+    "taxid", "n",
+    "cell", "acell", "r",
+    "k", "p", "c", "o", "f"
+  )
+) %>%
+  filter(!is.na(cell) | !is.na(acell)) %>%
+  mutate(k = case_when(acell == "Viruses" ~ acell, .default = k), db = "clustnr") %>%
+  select(-acell, -r, -cell)
+
+reduction_nr <- bind_rows(
+  group_by(nr_num, db, k, p, c) %>% summarise(num_seqs = sum(n)),
+  group_by(clustnr_num, db, k, p, c) %>% summarise(num_seqs = sum(n))
+) %>%
+  pivot_wider(names_from = db, values_from = num_seqs) %>%
+  mutate(
+    db = "nr",
+    size = clustnr,
+    reduction = nr - clustnr,
+    prop_reduction = reduction / nr
+  ) %>%
+  arrange(desc(prop_reduction)) %>%
+  select(-nr, -clustnr) %>%
+  ungroup()
+
+
+reduction_repdb <- repdb_df %>%
+  group_by(c) %>%
+  summarise(num_seqs = sum(num_seqs), db = min(db)) %>%
+  bind_rows(select(clust_stats, c, num_seqs, db)) %>%
+  pivot_wider(names_from = db, values_from = num_seqs) %>%
+  mutate(
+    db = "repdb",
+    size = clust_repdb,
+    reduction = repdb - clust_repdb,
+    prop_reduction = reduction / repdb
+  ) %>%
+  arrange(desc(prop_reduction)) %>%
+  left_join(distinct(tax, k, p, c)) %>%
+  select(-repdb, -clust_repdb)
+
+reduction_nr %>% 
+  filter(k=="Bacteria", prop_reduction>0.75, size>3000000)
+
+reduction_nr %>% 
+  arrange(desc(reduction)) %>% 
+  mutate(cs = cumsum(reduction),
+         total_reduced = cs/sum(reduction_nr$reduction, na.rm = T))
+
+
+reduction_repdb %>% 
+  arrange(desc(prop_reduction)) 
+
+plot_reduction <- bind_rows(reduction_nr, reduction_repdb) %>%
+  ggplot(aes(prop_reduction, k)) +
+  ggrepel::geom_text_repel(
+    data = reduction_repdb %>%
+      group_by(k) %>%
+      top_n(3, prop_reduction),
+    aes(label = c),
+    size = 1.5,
+    force_pull = 0.00001,
+    direction = "y",
+    segment.size = 0.1
+  ) +
+  ggbeeswarm::geom_quasirandom(
+    pch = 21, aes(fill = k, size = size),
+    stroke = .25, alpha = .75
+  ) + # %>% ggblend::blend("lighten")
+  # min.segment.length = unit(2, "cm")) +
+  facet_wrap(~db, scales = "free_x") +
+  labs(x = "% Reduced", y = "") +
+  scale_size(range = c(.5, 5)) +
+  scale_fill_manual(values = color_kingdoms) +
+  theme(legend.position = "none")
+
+plot_size <- tibble(
+  db = c("nr", "clustnr", "repdb", "clustrepdb"),
+  n = c(
+    sum(nr_num$n), sum(clustnr_num$n),
+    sum(repdb_df$num_seqs), sum(clust_stats$num_seqs)
+  )
+) %>%
+  mutate(
+    clustered = grepl("clust", db),
+    db = gsub("clust", "", db)
+  ) %>%
+  ggplot(aes(db, n, fill = db, alpha = clustered)) +
+  geom_col(position = "dodge") +
+  scale_alpha_manual(values = c(1, 0.5)) +
+  scale_fill_manual(values = color_benchdbs) +
+  scale_y_continuous(
+    expand = c(0, 0.05),
+    # position = "right",
+    labels = scales::unit_format(unit = "B", scale = 1e-9)
+  ) +
+  labs(x = "", y = "N") +
+  theme(legend.position = "none")
+
+plot_red <- (plot_size | plot_reduction) + plot_layout(widths = c(1, 6))
+ggsave("/data/drive/repdb/figures/FigRed.pdf", plot_red, height = 3, width = 8)
+
+# the E. coli problem in nr
+ecoli <- as.numeric(readLines("/gpfs/projects/bsc40/databases/nr/ecoli.ids"))
+nr_num %>% 
+  filter(taxid %in% ecoli) %>% 
+  summarise(sum(n))
+clustnr_num %>% 
+  filter(taxid %in% ecoli) %>% 
+  summarise(sum(n))
+
+
+```
+
+## Eukaryotes
+
+```{r euka_compl}
+euk_df <- repdb_df %>%
+  filter(k == "Eukaryota") %>%
+  # rowwise() %>%
+  mutate(
+    label = factor(label, levels = rev(p_order)),
+    db = case_when(
+      grepl("^UP", mnemo) ~ "uniprot",
+      grepl("^EP", mnemo) ~ "eukprot",
+      grepl("^P10", mnemo) ~ "p10k",
+      grepl("^CUS", mnemo) ~ "custom"
+    ),
+    db = factor(db, levels = c("custom", "uniprot", "eukprot", "p10k"))
+  ) %>%
+  replace_na(list(contamination = 0))
+
+ggplot(euk_df, aes(fill = strategy, y = label)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = type_palette) +
+  scale_x_continuous(expand = c(0, 0)) +
+  labs(y = "", x = "%") +
+  theme(legend.position = "bottom")
+
+# how many come from transcriptome
+
+euk_df %>% 
+  mutate(is_transcriptome = grepl("transcri", strategy)) %>% 
+  group_by(is_transcriptome) %>% 
+  summarise(n = sum(num_seqs)) %>% 
+  mutate(freq = n/sum(n))
+```
+
+### Contamination
+
+```{r euka_cont}
+plot_cont_db <- euk_df %>%
+  group_by(db) %>%
+  summarise(
+    n_conts = sum(n_conts, na.rm = T),
+    n_tot = sum(num_seqs)
+  ) %>%
+  mutate(prop = n_conts / n_tot) %>%
+  ggplot(aes(n_conts, fct_reorder(db, n_conts), fill = db)) +
+  geom_col() +
+  geom_text(
+    aes(
+      label = paste0(round(prop * 100, 2), "%"),
+      hjust = ifelse(n_conts > 2e4, 1.1, -0.1),
+      color = ifelse(n_conts > 2e4, "white", "black")
+    ),
+    # position = position_stack(vjust = 0.5, reverse = TRUE),
+    # size = 2.8, color = "white"
+  ) +
+  labs(x = "# Contaminants", y = "DB") +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.1))) +
+  scale_color_identity() +
+  scale_fill_manual(values = color_dbs) +
+  theme(legend.position = "none")
+```
+
+```{r contaminated_proteomes}
+plot_cont_prot <- euk_df %>%
+  # top_n(100, contamination) %>%
+  ggplot(aes(contamination, fct_reorder(label, contamination, .na_rm = T))) +
+  geom_boxplot(outlier.size = .1) +
+  # ggbeeswarm::geom_beeswarm() +
+  ggrepel::geom_text_repel(
+    data = . %>% filter(contamination > 20),
+    aes(label = g), size = 2,
+    direction = "y"
+    # nudge_y = -0.1
+  ) +
+  labs(x = "% Contaminated", y = "Eukaryotic class") +
+  theme(axis.text.y = element_text(size = 7))
+
+plot_cont <- (plot_cont_prot / plot_cont_db) + plot_layout(heights = c(5, 1))
+ggsave("/data/drive/repdb/figures/FigCont.pdf",plot_cont, width = 5, height = 6)
+```
+
+
+```{r co-occurence}
+pair_cooc <- read_delim("results/contamination/pair_counts.tsv",
+  col_names = c("n", "tmpq", "tmpt")
+) %>%
+  mutate(
+    q = pmin(tmpq, tmpt),
+    t = pmax(tmpq, tmpt)
+  ) %>%
+  select(-contains("tmp")) %>%
+  group_by(q, t) %>%
+  summarise(n = sum(n))
+
+mixed_pairs <- pair_cooc %>%
+  ungroup() %>%
+  # filter(n>1000, q!=t) %>%
+  mutate(
+    euka = ifelse(q %in% euk_df$mnemo, q, t),
+    proka = ifelse(q %in% euk_df$mnemo, t, q)
+  ) %>%
+  left_join(tax, by = c("euka" = "mnemo")) %>%
+  left_join(tax, by = c("proka" = "mnemo")) %>%
+  filter(k.x == "Eukaryota" & k.y != "Eukaryota")
+
+# proteomes with at least 5% contaminated proteins
+interesting <- filter(euk_df, contamination >= 5)$mnemo
+
+mean_cont_df <- mixed_pairs %>%
+  filter(euka %in% interesting) %>%
+  left_join(select(euk_df, mnemo, num_seqs), by = c("euka" = "mnemo")) %>%
+  group_by(euka, k.y, p.y) %>%
+  summarise(mean_cont = mean(n / num_seqs)) %>%
+  ungroup()
+
+# only consider those contaminant that are in at least 10 proteomes
+interesting_proka_phylum <- mean_cont_df %>%
+  group_by(p.y) %>%
+  count() %>%
+  filter(n >= 10)
+
+pdf(NULL)
+mean_cont_df %>%
+  right_join(interesting_proka_phylum) %>%
+  complete(euka, nesting(k.y, p.y), fill = list(mean_cont = 0)) %>%
+  group_by(euka) %>%
+  mutate(across(mean_cont, scales::rescale)) %>%
+  ungroup() %>%
+  left_join(tax, by = c("euka" = "mnemo")) %>%
+  mutate(sp_lab = paste0(euka, "-", word(s, 1, 2))) %>%
+  tidy_heatmap(sp_lab, p.y, mean_cont,
+    # scale = "row",
+    cluster_rows = T, cluster_cols = T,
+    # clustering_distance_cols = "minkowski",
+    annotation_col = c("k.y"),
+    annotation_row = "p",
+    color_legend_n = 9,
+    colors = c("#ffffff", "#ee4445"),
+    annotation_colors = list(
+      k.y = color_kingdoms,
+      p = colors_euka_phylum
+    ),
+    width = 6.2,
+    height = 7.5,
+    fontsize_row = 5
+    # filename = "results/plots/hm_cont.pdf"
+  )
+plot_hm <- grid::grid.grab()
+dev.off()
+
+ggsave("/data/drive/repdb/figures/FigHm.pdf", plot_hm, 
+       width = 6.2, height = 7.5)
+
+mixed_pairs %>% 
+  filter(q=="EP01030", n>500) %>% 
+  count(f.y)
+
+```
+
+```{r fig2}
+recall_plot <- readRDS("../decon/results/plots/recall.RDS")
+# fig2 <- (((recall_plot / plot_cont_db) + plot_layout(heights = c(4,1))) | plot_hm ) + plot_layout(widths = c(1, 1.75))
+ggsave("/data/drive/repdb/figures/FigRecall.pdf", recall_plot, 
+       width = 4, height = 4)
+```
+
+
+```{r euka-co-occurence}
+# Eukaryotic co-oc
+euka_mat <- pair_cooc %>%
+  # filter(n>1000, q!=t) %>%
+  left_join(tax, by = c("q" = "mnemo")) %>%
+  left_join(tax, by = c("t" = "mnemo")) %>%
+  filter(k.x == "Eukaryota", k.y == "Eukaryota", p.x != p.y)
+# left_join(select(repdb_df, mnemo, num_seqs), by = c("q" = "mnemo")) %>%
+# left_join(select(repdb_df, mnemo, num_seqs), by = c("t" = "mnemo")) %>%
+# mutate(n_tot = pmax(num_seqs.x, num_seqs.y), prop = n / n_tot)
+
+euka_mat %>%
+  filter(n > 100) %>%
+  ungroup() %>%
+  complete(q, t, fill = list(n = 0)) %>%
+  tidyheatmap(q, t, values = n, cluster_rows = T)
+```
+
+## Viruses
+
+```{r viral-cooc}
+viral_pairs <- pair_cooc %>%
+  ungroup() %>%
+  filter(q %in% virus_meta$mnemo | t %in% virus_meta$mnemo) %>%
+  mutate(
+    virus = ifelse(q %in% virus_meta$mnemo, q, t),
+    rest = ifelse(q %in% virus_meta$mnemo, t, q)
+  ) %>%
+  left_join(tax, by = c("virus" = "mnemo")) %>%
+  left_join(tax, by = c("rest" = "mnemo"))
+
+viral_pairs %>%
+  filter(k.y != "Viruses") %>%
+  group_by(c.x, p.y) %>%
+  summarise(n = sum(n)) %>%
+  arrange(desc(n))
+
+viral_pairs %>%
+  filter(n > 5)
+
+viral_pairs %>%
+  filter(c.x == "Megaviricetes", p.y == "Diaphoretickes") %>%
+  View()
+```
+
+```{r comparison}
+plot_cohen <- readRDS("results/plots/comparison.Rds")
+ggsave("/data/drive/repdb/figures/FigCohen.pdf", plot_cohen, width = 6.5, height = 4.5)
+```
+
+
+# TODO
+
+1. fix fig1 legend position so that is kingdom on top and data type on the bottom
+2. Add axis title to circular plot in fig.1 

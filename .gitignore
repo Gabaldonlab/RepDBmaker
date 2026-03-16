@@ -7,3 +7,4 @@ test/
 builddb.sh
 workflow/notebooks/*cache/
 workflow/notebooks/*files/
+resources/Cohen_2024

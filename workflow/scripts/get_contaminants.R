@@ -1,7 +1,7 @@
 suppressPackageStartupMessages(library(tidyverse))
 
 min_prop <- snakemake@params[["prop_euka"]]
-max_size <- snakemake@params[["size_cluster"]]
+# max_size <- snakemake@params[["size_cluster"]]
 
 clusters <- read_delim(snakemake@input[[1]], 
                        col_names = c("rep", "seq", "taxid", "tax"), delim = "\t")
@@ -28,7 +28,7 @@ df_euka_prop <- clusters_nonsingle %>%
   mutate(euka_prop = Eukaryota/n_clu) %>% 
   ungroup()
 
-clusters_to_filter <- filter(df_euka_prop, euka_prop<min_prop | n_clu<max_size)$rep
+clusters_to_filter <- filter(df_euka_prop, euka_prop <= min_prop)$rep #  | n_clu<max_size
 
 euks %>%
   filter(rep %in% c(clusters_to_filter, single_euk$rep)) %>% 

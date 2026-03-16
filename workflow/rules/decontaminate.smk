@@ -2,15 +2,22 @@ rule cluster_repdb:
     input: rules.make_repdb_fasta.output.fa
     output: "results/contamination/repdb_cluster.tsv"
     params:
-        identity=config["mm_identity"],
-        coverage=config["mm_coverage"]
+        identity=config["decontamination"]["identity"],
+        coverage=config["decontamination"]["coverage"],
+        cov_mode=config["decontamination"]["cov_mode"]
     threads: 112
+    conda: "../envs/homology.yaml"
+    resources: slurm_extra="'--qos=gp_bscls' '--constraint=highmem'"
+    benchmark: "results/benchmarks/decontamination/cluster.txt"
+    group: "decontaminate_clust"
     shell:'''
 clusterdir=$(dirname {output})
 mkdir -p $clusterdir
 
 mmseqs easy-linclust {input} $clusterdir/repdb $TMPDIR/repdbtest \
---min-seq-id {params.identity} -c {params.coverage} --cluster-mode 2 -e 0.001 --threads {threads}
+--min-seq-id {params.identity} -c {params.coverage} --cov-mode {params.cov_mode} \
+-e 0.001 --threads {threads}
+
 rm $clusterdir/repdb_all_seqs.fasta $clusterdir/repdb_rep_seq.fasta
 '''
 
@@ -19,8 +26,10 @@ rule remove_singletons:
         clusters=rules.cluster_repdb.output
     output:
         dups=temp("results/contamination/dups.ids"),
-        clusters=temp("results/contamination/non_singletons_clusters.tsv")
+        clusters="results/contamination/non_singletons_clusters.tsv"
     # threads: 24
+    conda: "../envs/utils.yaml"
+    group: "decontaminate"
     shell: '''
 cont_dir=$(dirname {output.dups})
 echo "getting the non singletons representative"
@@ -63,6 +72,8 @@ rule get_mixed_clusters:
     output:
         interesting="results/contamination/mixed.ids",
         mixed="results/contamination/mixed_cluster.tsv"
+    conda: "../envs/utils.yaml"
+    group: "decontaminate"
     shell: '''
 awk '{{print $0"\\t"substr($2, 1, index($2, "_")-1)}}' {input.clusters} | \
 taxonkit reformat -I 3 --data-dir {input.taxdump} -f "{{k}}"  | csvtk uniq -H -t -f 1,4 | \
@@ -73,6 +84,36 @@ awk '{{print $0"\\t"substr($2, 1, index($2, "_")-1)}}' | \
 taxonkit reformat -I 3 --data-dir {input.taxdump} > {output.mixed}
 '''
 
+# rule get_viral_clusters:
+#     input:
+#         clusters=rules.remove_singletons.output.clusters,
+#         taxdump=rules.create_repdb_taxdump.output.repdb_taxdump
+#     output:
+#         interesting="results/contamination/viral.ids",
+#         mixed="results/contamination/viral_cluster.tsv"
+#     conda: "../envs/utils.yaml"
+#     group: "decontaminate"
+#     shell: '''
+# awk '{{print $0"\\t"substr($2, 1, index($2, "_")-1)}}' {input.clusters} | \
+# taxonkit reformat -I 3 --data-dir {input.taxdump} -f "{{k}}"  | csvtk uniq -H -t -f 1,4 | \
+# sort -k4,4 | csvtk fold -t -H -f 1 -v 4 -s"|" | grep Viruses | cut -f1 > {output.interesting}
+
+# awk 'NR==FNR {{ dup[$1]; next }} $1 in dup' {output.interesting} {input.clusters} | \
+# awk '{{print $0"\\t"substr($2, 1, index($2, "_")-1)}}' | \
+# taxonkit reformat -I 3 --data-dir {input.taxdump} > {output.mixed}
+# '''
+
+
+rule get_pairwise_combination:
+    input: rules.remove_singletons.output.clusters
+    output: "results/contamination/pair_counts.tsv"
+    localrule: True
+    # group: "decontaminate"
+    shell: '''
+cut -f2,4 -d'_' {input} | sed 's/_/\\t/g' | sort | uniq -c | sed -E 's/^[[:space:]]*([0-9]+)[[:space:]]+(.*)/\\1\t\\2/' > {output}
+'''
+
+
 # should you try different mmseqs parameters?
 # get eukaryotic sequences in these clusters and flag them as contaminatnts
 # check how many of these are in your trees.
@@ -82,8 +123,10 @@ rule get_contaminants:
     input: rules.get_mixed_clusters.output.mixed
     output: "results/contamination/contaminants.txt"
     params:
-        prop_euka=config["prop_euka"],
-        size_cluster=config["size_cluster"]
+        prop_euka=config["decontamination"]["prop_euka"],
+        # size_cluster=config["size_cluster"]
+    conda: "../envs/R.yaml"
+    group: "decontaminate"
     script: '../scripts/get_contaminants.R'
 
 

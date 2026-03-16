@@ -1,0 +1,263 @@
+---
+title: "RepDB Comparison with NR"
+date: "`r format(Sys.time(), '%d-%b-%Y')`"
+author: "Giacomo Mutti"
+output:
+    rmdformats::html_clean:
+        number_sections: false
+        code_folding: hide
+        self_contained: true
+        fig_caption: true
+        # thumbnails: false
+        # lightbox: false
+        gallery: true
+        toc_depth: 3
+        highlight: kate
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = FALSE, warning = FALSE)
+knitr::knit_hooks$set(crop = knitr::hook_pdfcrop)
+knitr::opts_chunk$set(crop = TRUE)
+```
+
+```{r libs}
+library(tidyverse)
+library(tidyheatmaps)
+library(patchwork)
+library(ggalluvial)
+
+theme_set(theme_classic())
+source("workflow/scripts/functions.R")
+source("workflow/scripts/palettes.R")
+```
+```{r read_stuff}
+df_dmnd <- read_delim(list.files("results/comparison/hits/", pattern = "matches.tsv", full.names = T),
+  id = "db",
+  col_names = dmnd_cols
+) %>%
+  mutate(db = gsub("_matches.tsv", "", basename(db))) %>%
+  mutate(db = factor(db, levels = names(color_benchdbs)))
+
+
+# repdb_tax <- read_delim("results/taxonomies/repdb.tsv",
+#            col_names = c("mnemo", "k", "p", "c", "o", "f", "g", "s"))
+# min_cov <- 50
+# map <- read_delim("test/blast_search/tax.tsv",
+#                   col_names = c("sseqid", "taxid", "k", "p", "c", "o", "f", "g", "s")) %>%
+#   distinct()
+
+# df_dmnd <- df %>%
+# left_join(map) %>%
+# mutate(mnemo = str_split_i(sseqid, "_", 2)) %>%
+# left_join(repdb_tax, by="mnemo") %>%
+# mutate(
+#   k = coalesce(k.x, k.y),
+#   p = coalesce(p.x, p.y),
+#   c = coalesce(c.x, c.y),
+#   o = coalesce(o.x, o.y),
+#   f = coalesce(f.x, f.y),
+#   g = coalesce(g.x, g.y),
+#   s = coalesce(s.x, s.y)
+# ) %>%
+# select(-ends_with(".x"), -ends_with(".y")) %>%
+# filter(qcovhsp >= min_cov)
+```
+
+```{r benchmark}
+bench_df <- list.files("results/benchmarks/comparison/", full.names = T) %>%
+  read_delim(id = "tmp") %>%
+  separate(tmp, c("db", "method"), "_") %>%
+  mutate(
+    db = basename(db),
+    method = gsub(".txt", "", method),
+    max_rss_gb = max_rss / 1024,
+    db_source = gsub("clust", "", db)
+  )
+
+bench_df %>% 
+  filter(!grepl("clust", db)) %>% 
+  select(db, method, s, max_rss_gb) %>% 
+  pivot_wider(names_from = db, values_from = c(s, max_rss_gb)) %>% 
+  mutate(s_ratio = s_nr/s_repdb,
+         max_rss_gb_ratio = max_rss_gb_nr/max_rss_gb_repdb)
+
+plot_bench <- bench_df %>%
+  ggplot(aes(max_rss_gb, `h:m:s`, fill = db, group = db_source)) +
+  geom_line(color = "grey60") +
+  geom_point(pch = 21, size = 3) +
+  facet_grid(~method, scales = "free") +
+  labs(x = "Mem (GB)", y = "Runtime") +
+  scale_fill_manual(values = color_benchdbs)
+```
+
+```{r diamond_results}
+plot_dmnd <- df_dmnd %>%
+  select(db, pident, qcovhsp) %>%
+  mutate(
+    clustered = grepl("clust", db),
+    db2 = gsub("clust", "", db)
+  ) %>%
+  pivot_longer(cols = c(pident, qcovhsp)) %>%
+  ggplot(aes(value, color = db)) +
+  geom_density() +
+  facet_grid(. ~ name, scales = "free_y") +
+  labs(x="") +
+  scale_color_manual(values = color_benchdbs) +
+  theme(legend.position = "none")
+```
+
+```{r mmseqs}
+order_ranks <- c(
+  "no rank", "cellular root", "domain", "kingdom", "phylum",
+  "class", "clade", "order", "family", "genus", "species", "strain"
+)
+
+df_mmseqs_tmp <- read_delim(
+  list.files("results/comparison/tax/",
+    pattern = "lca.tsv",
+    full.names = T
+  ),
+  col_names = c("seq", "taxid", "rank", "classification"),
+  id = "db"
+) %>%
+  mutate(db = gsub("_lca.tsv", "", basename(db)))
+
+df_cohen <- read_delim("resources/Cohen_2024/merged.fasta.transdecoder-estimated-taxonomy.LCA.phyloDB.within3percent.AddRef.RefSeq.out") %>%
+  filter(transcript_name %in% df_mmseqs_tmp$seq)
+
+df_mmseqs <- df_cohen %>%
+  select(transcript_name, classification_level, classification) %>%
+  mutate(db = "Cohen2024", taxid = NA) %>%
+  rename(
+    "seq" = "transcript_name",
+    "rank" = "classification_level",
+    # "classification" = "full_classification"
+  ) %>%
+  bind_rows(df_mmseqs_tmp) %>%
+  mutate(rank = case_when(db == "Cohen2024" & rank == "supergroup" ~ "domain",
+    grepl("repdb", db) & rank == "superkingdom" ~ "domain",
+    .default = rank
+  )) %>%
+  mutate(
+    db = factor(db, levels = c("Cohen2024", names(color_benchdbs))),
+    rank = factor(rank, levels = rev(order_ranks))
+  )
+
+# how many unclassified and at which rank?
+# what is division in Choen?
+# maybe there are too many discrepancies?
+(plot_unk <- df_mmseqs %>%
+  filter(classification != "unclassified", !is.na(classification)) %>%
+  count(db, rank) %>%
+  ggplot(aes(n, db, fill = db, alpha = rank)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Cohen2024" = "firebrick", color_benchdbs)) +
+  scale_x_continuous(expand = c(0, 0.05)) +
+  labs(x = "N", y = "")
+)
+```
+
+```{r mmseqs-kraken}
+kraken_files <- list.files("results/comparison/tax", full.names = TRUE, pattern = "_report")
+kraken_files <- kraken_files[!str_detect(kraken_files, "tophit")]
+krk <- read_delim(kraken_files,
+  id = "db",
+  col_names = c(
+    "perc", "n", "n_direct", "rank",
+    "taxid", "nm"
+  ), delim = "\t"
+) %>%
+  mutate(
+    nested = str_count(nm, "\\G ") / 2,
+    nm = trimws(nm), nm_g = gsub(" .*", "", nm),
+    db = gsub("_report", "", basename(db))
+  )
+```
+
+```{r plot_kingdoms}
+cohen_cnts <- df_cohen %>%
+  mutate(
+    db = "Cohen2024",
+    nm = gsub(";..*", "", full_classification),
+    nm = replace_na(nm, "unclassified")
+  ) %>%
+  count(db, nm) %>%
+  mutate(nm = factor(nm, levels = c("unclassified", names(color_kingdoms)))) %>%
+  arrange(nm) %>%
+  mutate(y = n / cumsum(n))
+
+
+plot_kings <- krk %>%
+  filter(
+    (grepl("nr", db) & nested < 3 & nm != "root") |
+      (grepl("rep", db) & nested < 2 & nm != "root"),
+    rank != "cellular root"
+  ) %>%
+  select(db, n, nm) %>%
+  bind_rows(cohen_cnts) %>%
+  mutate(
+    nm = case_when(nm == "Uroviricota" ~ "Viruses", .default = nm),
+    db = factor(db, levels = c(names(color_benchdbs), "Cohen2024")),
+    nm = factor(nm, levels = c("unclassified", names(color_kingdoms)))
+  ) %>%
+  ggplot(aes(db, n, fill = nm)) +
+  geom_bar(position = "fill", stat = "identity") +
+  # geom_text(aes(label = nm), position = position_fill(vjust = .5), data = cohen_cnts) +
+  labs(x = "", y = "Prop.", fill = "Kingdom") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.01))) +
+  scale_fill_manual(values = c("unclassified" = "grey40", color_kingdoms)) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+    # legend.position = "none"
+  )
+
+```
+```{r fullplot, fig.width=6.5, fig.height=4.5}
+plot_comp <- ((plot_bench / plot_dmnd) | plot_kings) +
+ plot_layout(widths = c(2, 1), guides = "collect")
+
+saveRDS(plot_comp, "results/plots/comparison.Rds")
+# ggsave("results/plots/comparison.pdf", plot_comp, width = 6.5, height = 4.5)
+```
+
+
+```{r alluvial}
+df_classification <- df_mmseqs %>% 
+  filter(!grepl("clust", db)) %>% 
+  mutate(classification = replace_na(classification, "unclassified")) %>% 
+  select(seq, classification, db) %>% 
+  # filter(db=="Cohen2024") %>% count(classification) %>% View
+  pivot_wider(names_from = db, values_from = classification) 
+
+
+p_alluvial <- df_classification %>% 
+  filter(if_any(everything(), ~ .x == "unclassified")) %>% 
+  # filter(grepl("Dinophy", Cohen2024)) %>% 
+  ggplot(aes(axis1 = nr, axis2 = Cohen2024, axis3 = repdb)) +
+  geom_alluvium(
+    # aes(fill=Cohen2024), 
+                # color="grey70", 
+                fill="grey80"
+                ) +
+  geom_stratum(aes(fill=after_stat(stratum)=="unclassified") 
+               # fill="grey"
+               ) +
+  geom_text(stat = "stratum", 
+            aes(label = after_stat(stratum)), 
+            color="blue",
+            size=1) +
+  scale_x_discrete(limits = c("nr", "Cohen2024", "repdb"), expand = c(.1, .1)) +
+  labs(y = "N") + 
+  theme(legend.position = "none") + 
+  scale_fill_manual(values = c("grey", "black"))
+
+ggsave("results/plots/alluvial.pdf", p_alluvial, width = 5, height = 7)
+```
+
+
+# TODOs
+
+* Analyze taxonomic distribution of diamond results?
+* Compare mmseqs easy-taxonomy results

@@ -3,6 +3,7 @@
 rule download_unieuk:
     output:
         "results/meta/unieuk_taxonomy.tsv"
+    localrule: True
     shell:'''
 wget https://eukmap.unieuk.net/exports/unieuk/1.0.0-first_release/unieuk-1.0.0-first_release.tsv -O {output}
 '''
@@ -11,6 +12,7 @@ rule download_taxdump:
     output:
         td=directory("results/taxdump/ncbi_taxdump")
         # acc2taxid="results/tmp/prot.accession2taxid.FULL.gz"
+    localrule: True
     shell:'''
 mkdir -p {output.td}
 wget -O {output.td}/ncbi_taxdump.tar.gz https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz
@@ -27,6 +29,8 @@ rule get_gtdb_tax:
         bac_meta="results/tmp/bac_meta.tmp",
         ar_meta="results/tmp/ar_meta.tmp",
         meta="results/meta/gtdb_meta.tsv"
+    conda: "../envs/utils.yaml"
+    localrule: True
     shell:'''
 wget -O {output.bac} https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/bac120_taxonomy.tsv
 wget -O {output.ar}  https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/ar53_taxonomy.tsv
@@ -51,10 +55,21 @@ rule get_virus_genomes:
     output:
         meta="results/meta/refseq_virus_meta.txt",
         folder="results/tmp/refseq.zip",
+    conda: "../envs/utils.yaml"
+    localrule: True
     shell:'''
 wget -O - https://ftp.ncbi.nih.gov/genomes/refseq/viral/assembly_summary.txt | awk 'NR>2' > {output.meta}
 cut -f1 {output.meta} | datasets download genome accession --inputfile - --filename {output.folder} --include protein
 '''
+
+rule get_virus_class:
+    input: rules.get_virus_genomes.output.meta
+    output: "results/meta/refseq_virus_groups.tsv"
+    localrule: True
+    conda: "../envs/utils.yaml"
+    shell: """
+cut -f6 {input} | taxonkit reformat -I 1 -f "{{r}}\\t{{K}}\\t{{p}}" | cut -f2- | sort -u | grep . > {output}
+"""
 
 # Get EukProt metadata
 rule get_eukprot:
@@ -63,6 +78,7 @@ rule get_eukprot:
         euk_excluded="results/meta/EukProt_not_included.tsv",
         euk_busco="results/meta/EukProt_busco.tsv",
         euk_fa="results/tmp/eukprot.tgz",
+    localrule: True
     shell:'''
 wget -O - https://figshare.com/ndownloader/files/34436249 | sed 's/\\"//g' > {output.euk_excluded}
 wget -O - https://figshare.com/ndownloader/files/34436246 | sed 's/\\"//g' > {output.euk_included}
@@ -79,6 +95,8 @@ rule get_uniprot_meta:
         lineage="results/tmp/uniprot_lineage.tsv"
     params:
         taxdump=rules.download_taxdump.output
+    conda: "../envs/utils.yaml"
+    localrule: True
     shell:'''
 wget -O - https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/README | \
 grep ^UP | awk '$4=="eukaryota"' > {output.meta}
@@ -105,6 +123,8 @@ rule get_p10k:
         annotation="results/tmp/p10k_annotation.tsv",
         meta="results/meta/p10k_meta.tsv",
         lineage="results/meta/p10k_lineage.tsv"
+    conda: "../envs/utils.yaml"
+    localrule: True
     shell:'''
 echo -e "p10k_id\\tbiosample\\tsource\\tspecies" > {output.sample}
 wget https://ngdc.cncb.ac.cn/p10k/api/sample/list -O - | \
@@ -134,3 +154,9 @@ awk 'NR>1' {output.meta} | cut -f1,4,6 > {output.lineage}
 # echo -e "id\\tp10k_id\\tbiosample\\tsource\\tspecies\\tlineage\
 # \\tassembly_id\\tsize\\tn_contigs\\tN50\\tcompleteness\\t\
 # n_genes\\tCDS_completeness\\tannotation_level" > {output.meta}
+
+# rule get_nr_accessionmap:
+#     output: "results/tmp/prot.accession2taxid.gz"
+#     shell:'''
+# wget -O {output} ftp://ftp.ncbi.nlm.nih.gov/pub/taxonomy/accession2taxid/prot.accession2taxid.gz
+# '''

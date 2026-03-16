@@ -1,0 +1,10 @@
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - csvtk
+  - ncbi-datasets-cli
+  - newick_utils
+  - seqkit
+  - taxonkit
+  - jq

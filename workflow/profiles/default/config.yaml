@@ -1,0 +1,47 @@
+executor: slurm
+# These are SBATCH parameters
+default-resources:
+  slurm_partition: gp_bscls
+  slurm_account: bsc40
+  slurm_extra: "'--qos=gp_bscls'"
+  mem_mb: None
+  cpus_per_task: 12
+  runtime: 120 # 2 hours
+
+jobname: "{rule}-{jobid}"
+
+local-cores: 1
+keep-going: true
+rerun-incomplete: true
+printshellcmds: true
+sdm: conda
+conda-prefix: "/gpfs/projects/bsc40/current/gmutti/software/conda/repdb/"
+rerun-triggers: [code,input,mtime,params]
+
+group-components:
+  - cluster_db=6
+  - dmnd_bench=4
+  - mmseqs_bench=4
+
+set-resources:
+  make_repdb_fasta:
+    runtime: 360
+  merge_clustered:
+    runtime: 800
+  make_diamonddb:
+    cpus_per_task: 112
+  make_mmseqsdb:
+    cpus_per_task: 112
+  get_class:
+    cpus_per_task: 4
+  cluster_class:
+    cpus_per_task: 4
+  cluster_repdb:
+    cpus_per_task: 112
+    runtime: 400
+  diamond_random_seqs:
+    cpus_per_task: 28
+    runtime: 600
+  mmseqstax_random_seqs:
+    cpus_per_task: 112
+    runtime: 360

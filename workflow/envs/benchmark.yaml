@@ -1,0 +1,6 @@
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - diamond>=2.1.14 # this is because this version can accept blast db
+  - mmseqs2
