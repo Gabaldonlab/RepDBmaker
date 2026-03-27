@@ -30,12 +30,13 @@ rule get_gtdb_tax:
         ar_meta="results/tmp/ar_meta.tmp",
         meta="results/meta/gtdb_meta.tsv"
     conda: "../envs/utils.yaml"
+    params: gtdb=config["dbs"]["gtdb_version"]
     localrule: True
     shell:'''
-wget -O {output.bac} https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/bac120_taxonomy.tsv
-wget -O {output.ar}  https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/ar53_taxonomy.tsv
-wget -O {output.bac_meta} https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/bac120_metadata.tsv.gz
-wget -O {output.ar_meta} https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/ar53_metadata.tsv.gz
+wget -O {output.bac} https://data.ace.uq.edu.au/public/gtdb/data/releases/{params.gtdb}/bac120_taxonomy.tsv
+wget -O {output.ar}  https://data.ace.uq.edu.au/public/gtdb/data/releases/{params.gtdb}/ar53_taxonomy.tsv
+wget -O {output.bac_meta} https://data.ace.uq.edu.au/public/gtdb/data/releases/{params.gtdb}/bac120_metadata.tsv.gz
+wget -O {output.ar_meta} https://data.ace.uq.edu.au/public/gtdb/data/releases/{params.gtdb}/ar53_metadata.tsv.gz
 
 zcat {output.bac_meta} {output.ar_meta} | csvtk filter2 -t -f'$gtdb_representative=="t"' > {output.meta}
 
@@ -46,8 +47,9 @@ sed 's/_//' > {output.tax}
 
 rule get_gtdb_genomes:
     output: "results/tmp/gtdb_proteins_aa_reps.tar.gz"
+    params: gtdb=config["dbs"]["gtdb_version"]
     shell:'''
-wget -O {output} https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/genomic_files_reps/gtdb_proteins_aa_reps.tar.gz
+wget -O {output} https://data.ace.uq.edu.au/public/gtdb/data/releases/{params.gtdb}/genomic_files_reps/gtdb_proteins_aa_reps.tar.gz
 '''
 
 # Get refseq viruses

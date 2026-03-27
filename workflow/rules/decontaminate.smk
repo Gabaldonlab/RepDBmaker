@@ -1,32 +1,97 @@
-rule cluster_repdb:
-    input: rules.make_repdb_fasta.output.fa
-    output: "results/contamination/repdb_cluster.tsv"
+def _get_decon_settings(db):
+    build_conf = config.get("dbs", {}).get("build", {})
+    if db == "repdb":
+        db_conf = build_conf.get("repdb", {})
+    else:
+        db_conf = build_conf.get("custom", {}).get(db, {})
+    if not isinstance(db_conf, dict):
+        db_conf = {}
+    decontaminate_conf = db_conf.get("decontaminate")
+    if not isinstance(decontaminate_conf, dict):
+        decontaminate_conf = {}
+    return decontaminate_conf
+
+def _is_db_decon(db_name):
+    dbs_config = config.get("dbs", {}).get("build", {})
+    if db_name == "repdb":
+        db_conf = dbs_config.get("repdb")
+    else:
+        db_conf = dbs_config.get("custom", {}).get(db_name)
+    if isinstance(db_conf, dict):
+        return bool(db_conf.get("decontaminate"))
+    return False
+
+
+# def get_decon_fa(wildcards):
+#     if _is_db_decon(wildcards.db):
+#         if wildcards.db == "repdb":
+#             return "results/repdb/repdb.fa.gz"
+#         return f"results/{wildcards.db}/decontaminate/repdb_{wildcards.db}_decon.fa.gz"
+
+
+rule write_decontamination_params:
+    input:
+        tax=rules.create_full_taxdump.output.all_taxa
+    output:
+        params="results/dbs/{db}/decontaminate/decontaminate_params.yaml"
+    localrule: True
+    run:
+        decon_conf = _get_decon_settings(wildcards.db)
+        if not isinstance(decon_conf, dict):
+            decon_conf = {}
+        import os
+        os.makedirs(os.path.dirname(output.params), exist_ok=True)
+        with open(output.params, "w") as f:
+            f.write("decontaminate:\n")
+            for k, v in decon_conf.items():
+                f.write(f"  {k}: {v}\n")
+
+
+rule concat_fasta_decont:
+    input:
+        repdb="results/dbs/repdb/repdb.fa.gz",
+        other="results/dbs/{db}/{db}.fa.gz"
+    output: temp("results/{db}/decontaminate/{db}_decon.fa.gz")
+    localrule: True
+    conda: "../envs/utils.yaml"
+    shell:'''
+if [ "{wildcards.db}" == "repdb" ]; then
+    ln -s {input.repdb} {output}
+else
+    cat {input.repdb} {input.other} > {output}
+fi
+'''
+
+
+rule cluster_decontaminate:
+    input: rules.concat_fasta_decont.output
+    output: "results/dbs/{db}/decontaminate/{db}_cluster.tsv"
     params:
-        identity=config["decontamination"]["identity"],
-        coverage=config["decontamination"]["coverage"],
-        cov_mode=config["decontamination"]["cov_mode"]
+        identity=lambda wildcards: _get_decon_settings(wildcards.db).get("identity", 0.9),
+        coverage=lambda wildcards: _get_decon_settings(wildcards.db).get("coverage", 0.5),
+        cov_mode=lambda wildcards: _get_decon_settings(wildcards.db).get("cov_mode", 3)
     threads: 112
     conda: "../envs/homology.yaml"
     resources: slurm_extra="'--qos=gp_bscls' '--constraint=highmem'"
-    benchmark: "results/benchmarks/decontamination/cluster.txt"
+    benchmark: "results/benchmarks/decontamination/{db}_cluster.txt"
     group: "decontaminate_clust"
     shell:'''
 clusterdir=$(dirname {output})
 mkdir -p $clusterdir
 
-mmseqs easy-linclust {input} $clusterdir/repdb $TMPDIR/repdbtest \
+mmseqs easy-linclust {input} $clusterdir/{wildcards.db} $TMPDIR/{wildcards.db}test \
 --min-seq-id {params.identity} -c {params.coverage} --cov-mode {params.cov_mode} \
 -e 0.001 --threads {threads}
 
-rm $clusterdir/repdb_all_seqs.fasta $clusterdir/repdb_rep_seq.fasta
+rm $clusterdir/{wildcards.db}_all_seqs.fasta $clusterdir/{wildcards.db}_rep_seq.fasta
 '''
 
 rule remove_singletons:
     input: 
-        clusters=rules.cluster_repdb.output
+        clusters=rules.cluster_decontaminate.output
     output:
-        dups=temp("results/contamination/dups.ids"),
-        clusters="results/contamination/non_singletons_clusters.tsv"
+        dups=temp("results/dbs/{db}/decontaminate/dups.ids"),
+        clusters="results/dbs/{db}/decontaminate/non_singletons_clusters.tsv"
     # threads: 24
     conda: "../envs/utils.yaml"
     group: "decontaminate"
@@ -68,10 +133,10 @@ rm ${{cont_dir}}/chunk_*
 rule get_mixed_clusters:
     input:
         clusters=rules.remove_singletons.output.clusters,
-        taxdump=rules.create_repdb_taxdump.output.repdb_taxdump
+        taxdump=rules.create_full_taxdump.output.full_taxdump
     output:
-        interesting="results/contamination/mixed.ids",
-        mixed="results/contamination/mixed_cluster.tsv"
+        interesting="results/dbs/{db}/decontaminate/mixed.ids",
+        mixed="results/dbs/{db}/decontaminate/mixed_cluster.tsv"
     conda: "../envs/utils.yaml"
     group: "decontaminate"
     shell: '''
@@ -106,7 +171,7 @@ taxonkit reformat -I 3 --data-dir {input.taxdump} > {output.mixed}
 
 rule get_pairwise_combination:
     input: rules.remove_singletons.output.clusters
-    output: "results/contamination/pair_counts.tsv"
+    output: "results/dbs/{db}/decontaminate/pair_counts.tsv"
     localrule: True
     # group: "decontaminate"
     shell: '''
@@ -121,9 +186,9 @@ cut -f2,4 -d'_' {input} | sed 's/_/\\t/g' | sort | uniq -c | sed -E 's/^[[:space
 
 rule get_contaminants:
     input: rules.get_mixed_clusters.output.mixed
-    output: "results/contamination/contaminants.txt"
+    output: "results/dbs/{db}/decontaminate/contaminants.txt"
     params:
-        prop_euka=config["decontamination"]["prop_euka"],
+        prop_euka=lambda wildcards: _get_decon_settings(wildcards.db).get("prop_euka", 0.5)
         # size_cluster=config["size_cluster"]
     conda: "../envs/R.yaml"
     group: "decontaminate"

@@ -14,20 +14,22 @@ color_dbs <- c("p10k"="#449E77",
                "uniprot"="#CA3D54",
                "custom"="#933E9A")
 
-type_palette <- c("genome"="#762A83",
-                  "single-cell genome"="#C2A5CF",
-                  "transcriptome"="#1B7837",
-                  "single-cell transcriptome"="#D9F0D3",
-                  "transcriptome,EST"="#5AAE61",
+type_palette <- c("Genome"="#762A83",
+                  "S.C. genome"="#C2A5CF",
+                  "Transcriptome"="#1B7837",
+                  "S.C. transcriptome"="#D9F0D3",
+                  # "ranscriptome,EST"="#5AAE61",
                   "EST"="#5AAE61")
 
+
 ass_palette <- c(
-  "Complete Genome" = "#08306B", # Darkest Navy
+  "Complete genome" = "#08306B", # Darkest Navy
   "Chromosome"      = "#2171B5", # Strong Royal Blue
   "Scaffold"        = "#6BAED6", # Mid Sky Blue
-  "Contig"          = "#C6DBEF", # Pale Blue
-  "NA"              = "grey80"
+  "Contig"          = "#C6DBEF" # Pale Blue
+  # "NA"              = "grey80"
 )
+
 
 busco_colors <- c("#2CBBEF","#0099CF","#F3E600","#FF343E")
 names(busco_colors) <- c("Single", "Duplicated", "Fragmented", "Missing")

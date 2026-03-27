@@ -1,46 +1,118 @@
 import pandas as pd
 
-checkpoint repdb_classes:
-    input: "results/taxonomies/repdb.tsv"
-    output: "results/taxonomies/repdb_classes.txt"
-    localrule: True
-    shell: "cut -f4 {input} | sort -u | grep . > {output}"
-
-# Read taxonomic classes from GTDB taxonomy file
-def repr_all_classes(wildcards):
-  with checkpoints.repdb_classes.get(**wildcards).output[0].open() as f:
-    classes = [line.strip() for line in f if line.strip()]
-    return expand("results/clustered_db/tmp/{rank}/{rank}_rep_seq.fasta", rank=classes)
-
-def cluster_all_classes(wildcards):
-  with checkpoints.repdb_classes.get(**wildcards).output[0].open() as f:
-    classes = [line.strip() for line in f if line.strip()]
-    return expand("results/clustered_db/tmp/{rank}/{rank}_cluster.tsv", rank=classes)
+dict_ranks = {
+    "kingdom": 2,
+    "phylum": 3,
+    "class": 4,
+    "order": 5,
+    "family": 6,
+    "genus": 7,
+    "species": 8
+}
 
 
-rule get_class:
+def _get_cluster_settings(db):
+    build_conf = config.get("dbs", {}).get("build", {})
+    if db == "repdb":
+        db_conf = build_conf.get("repdb", {})
+    else:
+        db_conf = build_conf.get("custom", {}).get(db, {})
+    if not isinstance(db_conf, dict):
+        db_conf = {}
+    clustered_conf = db_conf.get("cluster")
+    if not isinstance(clustered_conf, dict):
+        clustered_conf = {}
+    return clustered_conf
+
+
+def _validate_cluster_levels():
+    if not isinstance(config.get("dbs", {}).get("build", {}), dict):
+        return
+    build_conf = config["dbs"]["build"]
+    # check repdb cluster config
+    repdb_conf = build_conf.get("repdb")
+    if isinstance(repdb_conf, dict):
+        cluster_conf = repdb_conf.get("cluster") or repdb_conf.get("clustered") or repdb_conf.get("clustering")
+        if isinstance(cluster_conf, dict):
+            level = cluster_conf.get("level")
+            if level and level not in dict_ranks:
+                raise ValueError(f"Invalid cluster level for repdb: '{level}'. Allowed: {sorted(dict_ranks.keys())}")
+    # check custom dbs
+    custom_conf = build_conf.get("custom", {})
+    if isinstance(custom_conf, dict):
+        for db_name, conf in custom_conf.items():
+            if isinstance(conf, dict):
+                cluster_conf = conf.get("cluster") or conf.get("clustered") or conf.get("clustering")
+                if isinstance(cluster_conf, dict):
+                    level = cluster_conf.get("level")
+                    if level and level not in dict_ranks:
+                        raise ValueError(f"Invalid cluster level for custom db '{db_name}': '{level}'. Allowed: {sorted(dict_ranks.keys())}")
+
+_validate_cluster_levels()
+
+rule write_cluster_params:
     input:
-        mmseqs=rules.make_mmseqsdb.output,
-        tax=rules.create_repdb_taxdump.output.all_taxa,
-        taxdump=rules.create_repdb_taxdump.output.repdb_taxdump
-    output: "results/clustered_db/tmp/{class}/{class}.fasta"
+        tax=rules.create_full_taxdump.output.all_taxa
+    output:
+        params="results/dbs/{db}/cluster/cluster_params.yaml"
+    run:
+        cluster_conf = _get_cluster_settings(wildcards.db)
+        if not isinstance(cluster_conf, dict):
+            cluster_conf = {}
+        import os
+        os.makedirs(os.path.dirname(output.params), exist_ok=True)
+        with open(output.params, "w") as f:
+            f.write("cluster:\n")
+            for k, v in cluster_conf.items():
+                f.write(f"  {k}: {v}\n")
+
+checkpoint db_clades:
+    input: "results/taxonomies/{db}_taxonomy.tsv"
+    output: "results/dbs/{db}/cluster/{db}_clades.txt"
+    params:
+        rank=lambda wildcards: dict_ranks.get(_get_cluster_settings(wildcards.db).get("level", "class"))
+    localrule: True
+    shell: "cut -f{params.rank} {input} | sort -u | grep . > {output}"
+
+# Read taxonomic clades from GTDB taxonomy file
+def repr_all_clades(wildcards):
+  with checkpoints.db_clades.get(**wildcards).output[0].open() as f:
+    clades = [line.strip() for line in f if line.strip()]
+    return expand("results/dbs/{db}/cluster/tmp/{rank}/{rank}_rep_seq.fasta", db=wildcards.db, rank=clades)
+
+def cluster_all_clades(wildcards):
+  with checkpoints.db_clades.get(**wildcards).output[0].open() as f:
+    clades = [line.strip() for line in f if line.strip()]
+    return expand("results/dbs/{db}/cluster/tmp/{rank}/{rank}_cluster.tsv", db=wildcards.db, rank=clades)
+
+
+rule get_clade:
+    input:
+        mmseqs=rules.make_mmseqsdb_clustering.output.db,
+        mmseqs_extra=rules.make_mmseqsdb_clustering.output.db_extra,
+        tax=rules.create_full_taxdump.output.all_taxa,
+        taxdump=rules.create_full_taxdump.output.full_taxdump
+    output: temp("results/dbs/{db}/cluster/tmp/{clade}/{clade}.fasta")
+    params: 
+        level=lambda wildcards: _get_cluster_settings(wildcards.db).get("level", "class"),
+        rank=lambda wildcards: dict_ranks.get(_get_cluster_settings(wildcards.db).get("level", "class"))
     threads: 8
     localrule: True
     conda: "../envs/homology.yaml"
     # group: "cluster_db"
     shell: """
-mkdir -p results/clustered_db/tmp/{wildcards.class}
+mkdir -p $(dirname {output})
 
-if [[ {wildcards.class} == "unclassified_"*  ]]; then
-    echo "{wildcards.class} is unclassified, proceeding with lookup mode"
-    awk '$4=="{wildcards.class}"' {input.tax} | cut -f1 | grep -f - {input.mmseqs}.lookup | cut -f1 > {output}.lookup
+if [[ {wildcards.clade} == "unclassified_"*  ]]; then
+    echo "{wildcards.clade} is unclassified, proceeding with lookup mode"
+    awk '${params.rank}=="{wildcards.clade}"' {input.tax} | cut -f1 | grep -f - {input.mmseqs}.lookup | cut -f1 > {output}.lookup
     
     mmseqs createsubdb --subdb-mode 1 --id-mode 0 -v 3 {output}.lookup {input.mmseqs} {output}_db
     mmseqs convert2fasta {output}_db {output}
     rm {output}.lookup
 else 
-    echo "{wildcards.class} is ok, proceeding with filtertaxseqdb mode"
-    taxid=$(echo {wildcards.class} | taxonkit name2taxid --data-dir {input.taxdump} -r | awk '$3=="class"' | cut -f2)
+    echo "{wildcards.clade} is ok, proceeding with filtertaxseqdb mode"
+    taxid=$(echo "{wildcards.clade}" | taxonkit name2taxid --data-dir {input.taxdump} -r | awk '$3=="{params.level}"' | cut -f2)
     
     mmseqs filtertaxseqdb {input.mmseqs} {output}_db --taxon-list $taxid --threads {threads}
     mmseqs convert2fasta {output}_db {output}
@@ -50,14 +122,14 @@ rm {output}_db*
 """
 
 
-rule cluster_class:
-    input: rules.get_class.output
+rule cluster_clade:
+    input: rules.get_clade.output
     output: 
-        seqs="results/clustered_db/tmp/{class}/{class}_rep_seq.fasta",
-        clusters="results/clustered_db/tmp/{class}/{class}_cluster.tsv"
+        seqs=temp("results/dbs/{db}/cluster/tmp/{clade}/{clade}_rep_seq.fasta"),
+        clusters=temp("results/dbs/{db}/cluster/tmp/{clade}/{clade}_cluster.tsv")
     params:
-        identity=config["clustering"]["identity"],
-        coverage=config["clustering"]["coverage"]
+        identity=lambda wildcards: _get_cluster_settings(wildcards.db).get("identity", 0.9),
+        coverage=lambda wildcards: _get_cluster_settings(wildcards.db).get("coverage", 0.9)
     conda: "../envs/homology.yaml"
     localrule: True
     # group: "cluster_db"
@@ -65,19 +137,19 @@ rule cluster_class:
     shell: """
 clusterdir=$(dirname {output.seqs})
 
-mmseqs easy-linclust {input} $clusterdir/{wildcards.class} $TMPDIR \
+mmseqs easy-linclust {input} $clusterdir/{wildcards.clade} $TMPDIR \
 --min-seq-id {params.identity} -c {params.coverage} --cluster-mode 2 -e 0.001 --threads {threads}
-rm $clusterdir/{wildcards.class}_all_seqs.fasta
+rm $clusterdir/{wildcards.clade}_all_seqs.fasta
 """
 
 
 rule merge_clustered:
     input: 
-        seqs=repr_all_classes,
-        clusters=cluster_all_classes
+        seqs=repr_all_clades,
+        clusters=cluster_all_clades
     output: 
-        seqs="results/clustered_db/repdb.fa.gz",
-        clusters="results/clustered_db/db_clusters.tsv"
+        seqs=temp("results/dbs/{db}/{db}_clustered.fa.gz"),
+        clusters="results/dbs/{db}/{db}_clusters.tsv"
     # localrule: True
     shell: """
 cat {input.seqs} | gzip > {output.seqs}

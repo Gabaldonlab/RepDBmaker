@@ -3,32 +3,74 @@ random.seed(42)
 
 configfile: "config/repdb.yaml"
 
+valid_db_types = {"diamond", "blastp", "mmseqs"}
+if "dbs" in config and "type" in config["dbs"]:
+    invalid = set(config["dbs"]["type"]) - valid_db_types
+    if invalid:
+        raise ValueError(
+            f"Invalid dbs.type values: {sorted(invalid)}. "
+            f"Allowed: {sorted(valid_db_types)}."
+        )
 
 # Import modules/rules
 include: 'rules/download.smk'
-include: 'rules/p10k.smk'
 include: 'rules/gtdb.smk'
-include: 'rules/custom.smk'
-include: 'rules/eukprot.smk'
-include: 'rules/uniprot.smk'
-include: 'rules/virus.smk'
+include: 'rules/taxonomy.smk'
+include: 'rules/common.smk'
 include: 'rules/db.smk'
 include: 'rules/cluster.smk'
 include: 'rules/decontaminate.smk'
 include: 'rules/stats.smk'
 
 
+# include: 'rules/p10k.smk'
+# include: 'rules/custom.smk'
+# include: 'rules/eukprot.smk'
+# include: 'rules/uniprot.smk'
+# include: 'rules/virus.smk'
+
+def get_database_targets():
+    """Generate database targets based on config."""
+    targets = []
+    dbs_config = config.get("dbs", {}).get("build", {})
+
+    # repdb
+    if "repdb" in dbs_config.keys():
+        targets.append("repdb")
+
+    # custom databases: allow either string path or dict with options
+    custom_dbs = dbs_config.get("custom", {})
+    if isinstance(custom_dbs, dict):
+        targets.extend(custom_dbs.keys())
+
+    return targets
+
+
+def get_clustered_database_targets():
+    """Return databases that need cluster-specific .fa input"""
+    return [db for db in get_database_targets() if _is_db_clustered(db)]
+
+def get_decontaminated_database_targets():
+    """Return databases that need decontamination outputs"""
+    return [db for db in get_database_targets() if _is_db_decon(db)]
+
+
+print(get_clustered_database_targets())
+
 rule all:
     input:
+        # Downloadable files
         "results/meta/check_resources.txt",
-        "results/taxonomies/all_eukaryotes.tsv",
-        expand("results/{clust}/repdb_diamond", clust = ["clustered_db", "db"]),
-        expand("results/{clust}/repdb_mmseqs", clust = ["clustered_db", "db"]),
-        # "results/db/repdb_blast",
-        # "results/meta/repdb_stats.tsv",
-        # "results/db/repdb.map.gz",
-        "results/contamination/contaminants.txt",
-        "results/meta/repdb_meta.tsv",
-        "results/meta/clustered_repdb_stats.tsv",
-        "results/contamination/pair_counts.tsv",
-        # "results/contamination/viral_cluster.tsv"
+        # Database files
+        expand("results/dbs/{db}/{db}_{dbtype}", db=get_database_targets(), dbtype=config["dbs"]["type"]),
+        # Clustering files
+        expand("results/dbs/{db}/cluster/cluster_params.yaml", db=get_clustered_database_targets()),
+        # Decontamination files
+        expand("results/dbs/{db}/decontaminate/decontaminate_params.yaml", db=get_decontaminated_database_targets()),
+        expand("results/dbs/{db}/decontaminate/contaminants.txt", db=get_decontaminated_database_targets()),
+        expand("results/dbs/{db}/decontaminate/pair_counts.tsv", db=get_decontaminated_database_targets()),
+        # Stats files
+        expand("results/stats/{db}_stats.tsv", db=get_database_targets()),
+        expand("results/stats/{db}_clustered_stats.tsv", db=get_clustered_database_targets()),
+        # get_optional_targets()
+

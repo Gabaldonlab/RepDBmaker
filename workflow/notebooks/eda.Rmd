@@ -76,6 +76,7 @@ euka_busco <- bind_rows(cus_stats, ep_stats, up_stats, p10k_stats) %>%
 
 
 ```{r parse_data}
+params <- yaml::read_yaml("config/repdb.yaml")
 tax <- read_delim("results/taxonomies/repdb.tsv",
   col_names = c("mnemo", "k", "p", "c", "o", "f", "g", "s")
 )
@@ -101,11 +102,16 @@ gtdb <- gtdb %>%
   # head() %>%
   mutate(mnemo = gsub("^GB|^RS|\\..*", "", gsub("_", "", accession)))
 
+cus_type <- read_delim(params$new_genomes, delim = "\t") %>% 
+  select(ID, Data_type) %>% 
+  rename("mnemo"="ID")
+
 repdb_df <- tax %>%
   left_join(select(stats, file, num_seqs), by = c("mnemo" = "file")) %>%
   mutate(db = "repdb") %>%
   left_join(gtdb) %>%
   left_join(euka_busco) %>%
+  left_join(cus_type) %>% 
   mutate(
     label = case_when(
       k %in% c("Bacteria", "Archaea") ~ p,
@@ -113,6 +119,7 @@ repdb_df <- tax %>%
     ),
     type = case_when(
       k %in% c("Bacteria", "Archaea") ~ ncbi_assembly_level,
+      grepl("^CUS", mnemo) ~ Data_type,
       k == "Eukaryota" ~ strategy
     ),
     completeness = case_when(
@@ -124,7 +131,13 @@ repdb_df <- tax %>%
       k %in% c("Bacteria", "Archaea") ~ checkm2_contamination,
       k == "Eukaryota" ~ mmseqs_contamination
     )
-  )
+  ) %>% 
+  mutate(type = gsub("Est", "EST", 
+                gsub(",est", "", 
+                gsub("Single-cell", "S.C.", 
+                str_to_sentence(type))))) %>% 
+  select(-Data_type, -strategy)
+
 ```
 
 <!-- ```{r abundance} -->
@@ -149,7 +162,9 @@ repdb_df %>%
   summarise(n = sum(num_seqs) / 1e6, 
             n_prot = n_distinct(mnemo),
             mn = mean(completeness),
-            sd = sd(completeness))
+            sd = sd(completeness),
+            mn_cont = mean(contamination, na.rm=T),
+            sd_cont = sd(contamination, na.rm=T))
 
 
 repdb_df %>% 
@@ -167,16 +182,22 @@ repdb_df %>%
             n_sp = n_distinct(s)) %>% 
   mutate(freq_seqs = num_seqs/sum(num_seqs)*100,
          freq_sps = n_sp/sum(n_sp)*100)
-
-
-virus_meta %>% 
-  # filter(c=="Megaviricetes") %>% 
-  mutate(is_nc = p=="Nucleocytoviricota") %>%
-  group_by(is_nc) %>% 
-  summarise(n = n(), n_seqs = sum(num_seqs)) %>%  
-  mutate(n/sum(n)*100, n_seqs/sum(n_seqs)*100)
 ```
 
+
+```{bash obtain-reduced-prokatree, eval=FALSE, engine="sh"}
+cut -f1,20 ../../results/meta/gtdb_meta.tsv | grep "d__Archaea" | sed 's/;c.*.//g' | sed 's/d__.*.p__//g' > armap
+# nw_condense ar53.tree -m armap > ar53_reduced.tree
+# the only problem is that cphylums with one genomes Huberarchaeota 
+# and JACRDV01 are not collapsed 
+# this happens for the mysterious bug in nw_rename
+# tried with gotree but there are other issues
+nw_prune ar53.tree GB_GCA_003724275.1 | nw_rename  - armap | nw_condense - > ar53_reduced.tree 
+
+cut -f1,20 ../../results/meta/gtdb_meta.tsv | grep "d__Bacteria" | sed 's/;c.*.//g' | sed 's/d__.*.p__//g'  > bacmap
+# nw_condense bac120.tree -m bacmap > bac120_reduced.tree
+nw_rename bac120.tree bacmap | nw_condense - > bac120_reduced.tree
+```
 
 ```{r tree}
 artree <- read.tree("test/tree/ar53_reduced.tree")
@@ -188,6 +209,13 @@ virus_meta <- repdb_df %>%
   select(mnemo, k, p, c, num_seqs, label) %>%
   left_join(virus_groups) %>%
   left_join(virus_meta)
+
+virus_meta %>% 
+  # filter(c=="Megaviricetes") %>% 
+  mutate(is_nc = p=="Nucleocytoviricota") %>%
+  group_by(is_nc) %>% 
+  summarise(n = n(), n_seqs = sum(num_seqs)) %>%  
+  mutate(n/sum(n)*100, n_seqs/sum(n_seqs)*100)
 
 v_fct <- virus_meta %>%
   distinct(k, realm, kingdom, p, c) %>%
@@ -215,16 +243,16 @@ p_order <- fortify(repdb_classtree) %>%
 ```
 
 ```{r fig1-params}
-tl <- 31.75
-x_lab <- 10.5
+tl <- 35.1 #  distance of type barplot
+x_lab <- 13.7 # distance of geomlabel
 min_x <- -15
-offsets <- c(0.575, 0.005)
-size_bar <- 2.5
+offsets <- c(0.75, 0.005)#c(0.575, 0.005)
+size_bar <- 2.75
 offset_tm <- 0.363
-```
+#```
 
 
-```{r fig1}
+#```{r fig1}
 repdb_summary <- repdb_df %>%
   group_by(label) %>%
   summarise(
@@ -248,7 +276,8 @@ p1 <- eukaproka_tree %>%
   fortify() %>%
   left_join(repdb_summary) %>%
   ggtree(layout = "circular") +
-  geom_tiplab(size = 1.9, hjust = 0, color = "grey20") +
+  # 1.9
+  geom_tiplab(size = 2.2, hjust = 0, color = "black") +
   # geom_label(aes(label=label, angle=angle),
   #            data = . %>% filter(isTip),
   #            size = 1.5, hjust = 0, color="white", fill="black") +
@@ -337,9 +366,10 @@ p2 <- p1 +
   ) +
   scale_color_manual(values = c(ass_palette, type_palette)) +
   theme(legend.position = "none")
-```
+# ``` 
 
-```{r add-legend}
+# ```{r add-legend}
+
 p_k <- color_kingdoms %>%
   enframe() %>%
   mutate(y = 1) %>%
@@ -371,6 +401,7 @@ p3 <- p2 + inset_element(p_legend,
   align_to = "full",
   clip = FALSE
 )
+
 ```
 
 ```{r add-treemap}
@@ -712,8 +743,6 @@ nr_num %>%
 clustnr_num %>% 
   filter(taxid %in% ecoli) %>% 
   summarise(sum(n))
-
-
 ```
 
 ## Eukaryotes
@@ -734,7 +763,7 @@ euk_df <- repdb_df %>%
   ) %>%
   replace_na(list(contamination = 0))
 
-ggplot(euk_df, aes(fill = strategy, y = label)) +
+ggplot(euk_df, aes(fill = type, y = label)) +
   geom_bar(position = "fill") +
   scale_fill_manual(values = type_palette) +
   scale_x_continuous(expand = c(0, 0)) +
@@ -744,7 +773,7 @@ ggplot(euk_df, aes(fill = strategy, y = label)) +
 # how many come from transcriptome
 
 euk_df %>% 
-  mutate(is_transcriptome = grepl("transcri", strategy)) %>% 
+  mutate(is_transcriptome = grepl("transcri", type)) %>% 
   group_by(is_transcriptome) %>% 
   summarise(n = sum(num_seqs)) %>% 
   mutate(freq = n/sum(n))
@@ -765,36 +794,76 @@ plot_cont_db <- euk_df %>%
   geom_text(
     aes(
       label = paste0(round(prop * 100, 2), "%"),
-      hjust = ifelse(n_conts > 2e4, 1.1, -0.1),
-      color = ifelse(n_conts > 2e4, "white", "black")
+      hjust = ifelse(n_conts > 1e5, 1.1, -0.1),
+      color = ifelse(n_conts > 1e5, "white", "black")
     ),
     # position = position_stack(vjust = 0.5, reverse = TRUE),
     # size = 2.8, color = "white"
   ) +
   labs(x = "# Contaminants", y = "DB") +
-  scale_x_continuous(expand = expansion(mult = c(0, 0.1))) +
+  # trans = "log2", 
+  scale_x_continuous(expand = expansion(mult = c(0, 0.05))) +
   scale_color_identity() +
   scale_fill_manual(values = color_dbs) +
+  theme(legend.position = "none")
+
+plot_type_db <- euk_df %>%
+  count(db, type) %>%
+  mutate(db = factor(db, 
+                     levels=pull(arrange(plot_cont_db@data, prop), db))) %>% 
+  ggplot(aes(n, db, fill = type)) +
+  geom_col(position = "fill") +
+  labs(x = "% Data Type", y = "") +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.05))) +
+  scale_fill_manual(values = type_palette) +
   theme(legend.position = "none")
 ```
 
 ```{r contaminated_proteomes}
 plot_cont_prot <- euk_df %>%
-  # top_n(100, contamination) %>%
   ggplot(aes(contamination, fct_reorder(label, contamination, .na_rm = T))) +
-  geom_boxplot(outlier.size = .1) +
-  # ggbeeswarm::geom_beeswarm() +
+  geom_boxplot(aes(color=type), size=.2, outlier.size = .1) +
   ggrepel::geom_text_repel(
     data = . %>% filter(contamination > 20),
-    aes(label = g), size = 2,
-    direction = "y"
-    # nudge_y = -0.1
+    aes(label = g), size = 1.5,
+    force = .1,
+    box.padding = 0.1,
+    nudge_x = 1,
+    nudge_y = .25,
+    segment.curvature = -0.1,
+    segment.ncp = .3,
+    segment.angle = 20
+    # min.segment.length = Inf,
+    # direction = "y"
   ) +
-  labs(x = "% Contaminated", y = "Eukaryotic class") +
-  theme(axis.text.y = element_text(size = 7))
+  labs(x = "% Contaminated", y = "Eukaryotic class",
+       color="Data Type") +
+  guides(color=guide_legend(nrow=3,byrow=TRUE,
+                            override.aes = list(linewidth=.3, 
+                                                fill="white"))) + 
+  scale_color_manual(values = type_palette) +
+  theme(axis.text.y = element_text(size = 7), 
+        legend.text = element_text(size=7),
+        legend.title = element_text(size=7),
+        legend.key.spacing.y = unit(0,"mm"),
+        legend.key.spacing.x = unit(0,"mm"),
+        legend.key.size = unit(3,"mm"),
+        legend.key = element_rect(fill="white"),
+        legend.background = element_rect(fill="white"),
+        legend.position = c(0.75,0.92))
 
-plot_cont <- (plot_cont_prot / plot_cont_db) + plot_layout(heights = c(5, 1))
-ggsave("/data/drive/repdb/figures/FigCont.pdf",plot_cont, width = 5, height = 6)
+cont_bottom <- (plot_cont_db | plot_type_db) + 
+  plot_layout(axes = "collect")
+
+plot_cont <- (plot_cont_prot / cont_bottom) + 
+  plot_layout(heights = c(5, 1)) + 
+  plot_annotation(tag_levels = 'A')
+ggsave("/data/drive/repdb/figures/FigCont.pdf",plot_cont, width = 5.5, height = 6)
+
+euk_df %>% 
+  group_by(type) %>% 
+  summarise(mean(contamination),
+            max(contamination))
 ```
 
 
@@ -873,6 +942,41 @@ mixed_pairs %>%
   filter(q=="EP01030", n>500) %>% 
   count(f.y)
 
+mixed_pairs %>%
+  filter(euka=="P10K-NCBI-001938") %>% 
+  count(g.y) %>% 
+  arrange(desc(n))
+
+
+mixed_pairs %>% 
+  filter(euka %in%  filter(euk_df, contamination >= 2.5)$mnemo) %>%
+  rename("clade"="g.y") %>% 
+  count(euka, k.y, clade) %>% 
+  group_by(euka) %>% 
+  mutate(prop = n/sum(n)) %>% 
+  filter(prop>0.1, n>20) %>%
+  ungroup() %>%
+  complete(euka, nesting(k.y, clade), fill = list(prop = 0)) %>% 
+  left_join(tax, by = c("euka" = "mnemo")) %>% 
+  mutate(sp_lab = paste0(euka, "-", word(s, 1, 2))) %>%
+  # top_n(1, prop)
+  tidy_heatmap(sp_lab, clade, prop,
+               cluster_rows = T, cluster_cols = T, 
+               treeheight_col = 0,
+               clustering_distance_rows = "binary",
+               # annotation_col = c("k.y"),
+               annotation_row = "p",
+               color_legend_n = 9,
+               colors = c("white", as.character(wesanderson::wes_palette("Zissou1"))),
+               annotation_colors = list(
+                 # k.y = color_kingdoms,
+                 p = colors_euka_phylum
+               ),
+               width = 6.2,
+               height = 7.5,
+               fontsize_row = 5
+  )  
+# ALTERNATIVE VERSION OF THE FIG AT GENUS LEVEL, LET'S WAIT FOR TONIS
 ```
 
 ```{r fig2}

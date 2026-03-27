@@ -134,23 +134,23 @@ def write_fasta(seqs: dict[str, str], renaming_data: dict, seqlen: int = 60):
             omapfile.write("".join(map_buffer))
 
 
-def main_process(table_file: str, taxid_map_file: str, output_fasta: str, output_map: str):
+if __name__ == '__main__':
     """The main entry point, processing the table of files."""
 
     # 1. Load the Tax ID map ONCE
     taxids = {}
-    with open(taxid_map_file) as f:
+    with open(snakemake.input[1]+"/taxid.map") as f:
         for line in f:
             parts = line.strip().split('\t')
             if len(parts) >= 2:
                 taxids[parts[0]] = parts[1]
     
     # 2. Clear output files ONCE
-    open(output_fasta, 'w').close()
-    open(output_map, 'w').close()
+    open(snakemake.output[0], 'w').close()
+    open(snakemake.output[1], 'w').close()
 
     # 3. Process the input table
-    with open(table_file) as table:
+    with open(snakemake.input[0]) as table:
         for line in table:
             parts = line.split()
             if len(parts) < 2:
@@ -166,32 +166,18 @@ def main_process(table_file: str, taxid_map_file: str, output_fasta: str, output
             
             # B. Prepare renaming metadata
             renaming_data = {
-                'output_fasta': output_fasta,
-                'output_map': output_map,
+                'output_fasta': snakemake.output[0],
+                'output_map': snakemake.output[1],
                 'file_code': file_code
             }
 
-            if file_code == "C-RVDB":
-                # Special case: Tax ID lookup based on sequence header
-                renaming_data['taxid_dict'] = taxids
+            # Standard case: Fixed Tax ID for the entire file
+            tax_id_for_file = taxids.get(file_code)
+            if tax_id_for_file:
+                renaming_data['taxid'] = tax_id_for_file
             else:
-                # Standard case: Fixed Tax ID for the entire file
-                tax_id_for_file = taxids.get(file_code)
-                if tax_id_for_file:
-                    renaming_data['taxid'] = tax_id_for_file
-                else:
-                    print(f"Warning: Tax ID not found for file code '{file_code}'. Skipping renaming.", file=sys.stderr)
+                print(f"Warning: Tax ID not found for file code '{file_code}'. Skipping renaming.", file=sys.stderr)
                     # Could skip the file or write without renaming here
 
             # C. Write results (handles all buffering and I/O)
             write_fasta(sequences, renaming_data)
-
-# Example usage (would replace snakemake calls)
-# if __name__ == '__main__':
-#     # Hardcoded or command line arguments would replace the snakemake access
-#     main_process(
-#         table_file='data/meta/broaddb_genome_table.tsv',
-#         taxid_map_file='data/taxdump/broaddb_taxdump/taxid.map',
-#         output_fasta='test/output.fa.gz',
-#         output_map='test/id.map'
-#     )

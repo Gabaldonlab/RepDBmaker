@@ -1,4 +1,4 @@
-configfile: "config/repdb.yaml"
+configfile: "config/benchmark.yaml"
 
 rule all:
     input:

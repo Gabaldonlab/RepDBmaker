@@ -1,0 +1,20 @@
+# this part you only need it if you want to benchmark nr with RepDB
+# you need to run the workflow/benchmark.smk as Snakefile! 
+benchmark:
+  dbs: 
+    nr:
+      dmnd: "/gpfs/projects/bsc40/databases/nr/nr"
+      mmseqs: "/gpfs/projects/bsc40/databases/nr/nr_mmseqs"
+    clustnr:
+      dmnd: "/gpfs/projects/bsc40/databases/nr_cluster/nr_cluster_seq"
+      mmseqs: "/gpfs/projects/bsc40/databases/nr_cluster/nr_cluster_mmseqs"
+    repdb:
+      dmnd: "results/dbs/repdb/repdb_diamond"
+      mmseqs:  "results/dbs/repdb/repdb_mmseqs"
+    clustrepdb:
+      dmnd: "results/dbs/clustered_repdb/repdb_diamond"
+      mmseqs: "results/dbs/clustered_repdb/repdb_mmseqs"
+  tax_annot: "resources/Cohen_2024/merged.fasta.transdecoder-estimated-taxonomy.LCA.phyloDB.within3percent.AddRef.RefSeq.out"
+  source_seqs: "resources/Cohen_2024/merged.fasta.transdecoder.pep"
+  n_seqs: 500
+  lca_mode: 3
