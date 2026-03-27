@@ -52,4 +52,4 @@ dbs:
 files: 
   clades_to_keep: "resources/clades_tokeep.txt"
   genomes_to_exclude: "resources/exclude.txt"
-  new_genomes: "resources/euka_genomes.csv"
+  new_genomes: "resources/custom_genomes_repdb.csv"
