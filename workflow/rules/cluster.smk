@@ -55,6 +55,7 @@ rule write_cluster_params:
         tax=rules.create_full_taxdump.output.all_taxa
     output:
         params="results/dbs/{db}/cluster/cluster_params.yaml"
+    localrule: True
     run:
         cluster_conf = _get_cluster_settings(wildcards.db)
         if not isinstance(cluster_conf, dict):

@@ -1,6 +1,33 @@
 # RepDBmaker Pipeline
 
+
+<p align="center">
+  <img src="images/Fig1.png" alt="pipeline_schema" width="800"/>
+</p>
+
 This repository contains a Snakemake-based workflow to build taxonomically annotated protein sequence databases from multiple public sources and custom genome collections.
+
+## Table of contents
+
+- [RepDBmaker Pipeline](#repdbmaker-pipeline)
+  - [Table of contents](#table-of-contents)
+  - [What this pipeline does](#what-this-pipeline-does)
+  - [Repository layout](#repository-layout)
+  - [Requirements](#requirements)
+  - [Quick start](#quick-start)
+  - [Configuration](#configuration)
+  - [Pipeline components](#pipeline-components)
+    - [Downloads and metadata](#downloads-and-metadata)
+    - [Taxonomy assembly](#taxonomy-assembly)
+    - [Clustering](#clustering)
+    - [Decontamination](#decontamination)
+  - [Outputs](#outputs)
+  - [Benchmarking](#benchmarking)
+  - [Custom databases](#custom-databases)
+  - [Useful files](#useful-files)
+  - [Authors](#authors)
+  - [References](#references)
+  - [TODO](#todo)
 
 ## What this pipeline does
 
@@ -56,6 +83,18 @@ It will produce the `results/meta/available_proteomes.tsv` that can be easily pa
 ```bash
 snakemake -j 14
 ```
+
+Sometimes things can go wrong while downloading a proteome. That is why there is a step (rule `db_stats`) that will fail if any gzipped fasta is malformed and will block the creation of the database fasta. 
+
+In this case you can run for example:
+
+```bash
+cut -f1 results/dbs/repdb/genome_table.tsv | xargs -I {} sh -c 'gzip -t "{}" || echo "Failed: {}"'
+```
+
+Then delete the problematic ones and re-run the pipeline. If the problem persitsts, there may be other sort of problems
+(this specific proteome files are broken or the current downloading script fails), I reccomend to exclude them and find the most suitable alternative. 
+
 
 ## Configuration
 
@@ -170,3 +209,25 @@ The pipeline will create `results/dbs/<custom_db>/` with the expected outputs.
 - `config/repdb.yaml` — pipeline configuration
 - `resources/` — genome lists, excluded genomes, and clade filters
 
+
+## Authors
+
+- Firstname Lastname
+  - Affiliation
+  - ORCID profile
+  - home page
+
+## References
+
+> ADD
+
+## TODO
+
+- unit tests
+- proper README
+- docker container
+- snakevision
+- images folder
+- profiles
+- schemas
+- github workflows (check snakemake template)

@@ -3,7 +3,8 @@ rule db_stats:
     output: "results/stats/{db}_stats.tsv"
     threads: 48
     conda: "../envs/utils.yaml"
-    localrule: True
+    # localrule: True
+    # group: "create_db"
     shell:'''
 cut -f1 {input} | seqkit stats -j {threads} --infile-list - -T -b | \
 cut -f1,4- | sed 's/.faa.gz//' > {output}
@@ -14,7 +15,8 @@ rule clustdb_stats:
     output: "results/stats/{db}_clustered_stats.tsv"
     threads: 48
     conda: "../envs/utils.yaml"
-    localrule: True
+    # group: "create_db"
+    # localrule: True
     shell:'''
 seqkit stats -j {threads} -T -b {input} | \
 cut -f1,4- | sed 's/_rep_seq.fasta//' > {output}

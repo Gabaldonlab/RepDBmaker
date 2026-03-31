@@ -20,13 +20,15 @@ mmseqs_ext = [".dbtype", "_h", "_h.dbtype", "_h.index",
 rule make_db_fasta:
     input:
         table="results/dbs/{db}/genome_table.tsv",
-        taxdump=rules.create_full_taxdump.output.full_taxdump
+        taxdump=rules.create_full_taxdump.output.full_taxdump,
+        stats="results/stats/{db}_stats.tsv" # if this failed it means some proteomes had problems while downloading!
     output:
         fa="results/dbs/{db}/{db}.fa.gz",
         idmap="results/dbs/{db}/{db}_accession_map.txt"
     # log: "results/log/dbs/repdb/parse.log"
     threads: 112
     benchmark: "results/benchmarks/dbs/{db}/parse.txt"
+    # group: "create_db"
     conda: "../envs/python.yaml"
     # group: "create_db"
     script: "../scripts/parse_gnm_v2.py"
@@ -58,6 +60,7 @@ rule make_mmseqsdb_clustering:
     log: "results/log/dbs/{db}/make_mmseqs_clustering.log"
     benchmark: "results/benchmarks/dbs/{db}/make_mmseqs_clustering.txt"
     threads: 112
+    # group: "create_db"
     conda: "../envs/homology.yaml"
     shell:''' 
 mmseqs createdb {input.fa} {output.db} > {log}

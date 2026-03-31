@@ -19,9 +19,15 @@ include: 'rules/taxonomy.smk'
 include: 'rules/common.smk'
 include: 'rules/db.smk'
 include: 'rules/cluster.smk'
-include: 'rules/decontaminate.smk'
 include: 'rules/stats.smk'
+include: 'rules/decontaminate.smk'
 
+onstart:
+    print("\n--- Workflow started ---\n")
+onsuccess:
+    print("\n--- Workflow finished! ---\n")
+onerror:
+    print("\n--- An error occurred! ---\n")
 
 # include: 'rules/p10k.smk'
 # include: 'rules/custom.smk'

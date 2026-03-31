@@ -43,19 +43,19 @@ cus_stats <- read_delim("../../DB/new_genomes/results/stats/custom_busco.tsv") %
   mutate(strategy = NA) %>%
   select(file, complete, strategy) %>%
   rename("mnemo" = "file", "busco_complete" = "complete")
-up_stats <- read_delim("results/meta/uniprot_busco.tsv", show_col_types = F) %>%
+up_stats <- read_delim("../repdb_dev/results/meta/uniprot_busco.tsv", show_col_types = F) %>%
   janitor::clean_names() %>%
   mutate(busco_complete = parse_number(gsub("\\[.*", "", busco))) %>%
   select(proteome_id, busco_complete) %>%
   mutate(strategy = "genome") %>%
   rename("mnemo" = "proteome_id")
-ep <- read_delim("../repdb/results/meta/EukProt_included.tsv", show_col_types = F)
-ep_stats <- read_delim("results/meta/EukProt_busco.tsv", show_col_types = F) %>%
+ep <- read_delim("../repdb_dev/results/meta/EukProt_included.tsv", show_col_types = F)
+ep_stats <- read_delim("../repdb_dev/results/meta/EukProt_busco.tsv", show_col_types = F) %>%
   mutate(mnemo = gsub("_.*", "", Input_file)) %>%
   select(mnemo, Complete) %>%
   left_join(select(ep, c(EukProt_ID, Data_Source_Type)), by = c("mnemo" = "EukProt_ID")) %>%
   rename("busco_complete" = "Complete", "strategy" = "Data_Source_Type")
-p10k_stats <- read_delim("results/meta/p10k_meta.tsv", show_col_types = F) %>%
+p10k_stats <- read_delim("../repdb_dev/results/meta/p10k_meta.tsv", show_col_types = F) %>%
   filter(n_genes != -1) %>%
   select(p10k_id, completeness, strategy) %>%
   mutate(strategy = gsub(
@@ -64,7 +64,7 @@ p10k_stats <- read_delim("results/meta/p10k_meta.tsv", show_col_types = F) %>%
   )) %>%
   rename("mnemo" = "p10k_id", "busco_complete" = "completeness")
 
-euka_conts <- readLines("results/contamination/contaminants.txt") %>%
+euka_conts <- readLines("../repdb_dev/results/contamination/contaminants.txt") %>%
   str_split_i("_", 2) %>%
   table() %>%
   enframe(name = "mnemo", value = "n_conts") %>%
@@ -76,23 +76,23 @@ euka_busco <- bind_rows(cus_stats, ep_stats, up_stats, p10k_stats) %>%
 
 
 ```{r parse_data}
-params <- yaml::read_yaml("config/repdb.yaml")
-tax <- read_delim("results/taxonomies/repdb.tsv",
+params <- yaml::read_yaml("../repdb_dev/config/repdb.yaml")
+tax <- read_delim("../repdb_dev/results/taxonomies/repdb.tsv",
   col_names = c("mnemo", "k", "p", "c", "o", "f", "g", "s")
 )
-stats <- read_delim("results/meta/repdb_stats.tsv")
-clust_stats <- read_delim("results/meta/clustered_repdb_stats.tsv") %>%
+stats <- read_delim("../repdb_dev/results/meta/repdb_stats.tsv")
+clust_stats <- read_delim("../repdb_dev/results/meta/clustered_repdb_stats.tsv") %>%
   mutate(db = "clust_repdb") %>%
   rename("c" = "file")
 
-virus_meta <- read_delim("resources/ncbi_virus_metadata.tsv") %>%
+virus_meta <- read_delim("../repdb_dev/resources/ncbi_virus_metadata.tsv") %>%
   mutate(mnemo = gsub("_|\\..*", "", Assembly))
-virus_groups <- read_delim("results/meta/refseq_virus_groups.tsv",
+virus_groups <- read_delim("../repdb_dev/results/meta/refseq_virus_groups.tsv",
   col_names = c("realm", "kingdom", "p")
 ) %>%
   filter(!is.na(kingdom))
 
-gtdb <- read_delim("results/meta/gtdb_meta.tsv")
+gtdb <- read_delim("../repdb_dev/results/meta/gtdb_meta.tsv")
 gtdb <- gtdb %>%
   select(
     accession, checkm2_completeness, checkm2_contamination,
@@ -165,7 +165,6 @@ repdb_df %>%
             sd = sd(completeness),
             mn_cont = mean(contamination, na.rm=T),
             sd_cont = sd(contamination, na.rm=T))
-
 
 repdb_df %>% 
   filter(k %in% c("Bacteria", "Archaea")) %>% 
@@ -248,7 +247,8 @@ x_lab <- 13.7 # distance of geomlabel
 min_x <- -15
 offsets <- c(0.75, 0.005)#c(0.575, 0.005)
 size_bar <- 2.75
-offset_tm <- 0.363
+offset_tm <- 0.375
+
 #```
 
 
@@ -431,6 +431,7 @@ drawTreemap(tm,
 p_tm <- grid::grid.grab()
 dev.off()
 
+
 p4 <- p3 + inset_element(p_tm,
   left = offset_tm,
   bottom = offset_tm,
@@ -445,8 +446,6 @@ p4 <- p3 + inset_element(p_tm,
   )
 
 ggsave("results/plots/repdb_tree.pdf", p4, width = 11, height = 11)
-# p4
-ggsave("/data/drive/repdb/figures/Fig1.pdf", p4, width = 11, height = 11)
 ```
 
 ### Viral tree
@@ -554,7 +553,6 @@ pvir2 <- pvir1 +
   )
 
 ggsave("results/plots/virtree.pdf", pvir2, width = 4.3, height = 4.5)
-ggsave("/data/drive/repdb/figures/FigS1.pdf", pvir2, width = 4.3, height = 4.5)
 ```
 
 To obtain the count for NR I did this
@@ -581,57 +579,6 @@ nr_num <- read_delim("/gpfs/projects/bsc40/databases/nr/nr_taxid_counts_tax.tsv"
   mutate(k = case_when(acell == "Viruses" ~ acell, .default = k), db = "nr") %>%
   select(-acell, -r, -cell)
 
-nr_orders <- nr_num %>%
-  group_by(k, p, c, o) %>%
-  # filter(!is.na(o)) %>%
-  summarise(n = sum(n)) %>%
-  mutate(db = "nr") %>%
-  ungroup()
-
-repdb_orders <- repdb_df %>%
-  group_by(k, p, c, o) %>%
-  # filter(!is.na(o)) %>%
-  summarise(n = sum(num_seqs)) %>%
-  mutate(db = "repdb") %>%
-  ungroup()
-
-plot_lorenz <- bind_rows(nr_orders, repdb_orders) %>%
-  group_by(k, db) %>%
-  arrange(n) %>%
-  mutate(
-    rank = row_number(n) / n(),
-    cs = cumsum(n) / sum(n)
-  ) %>%
-  ggplot(aes(x = rank, y = cs, color = k, linetype = db)) +
-  geom_line() +
-  geom_abline(intercept = 0, slope = 1) +
-  coord_fixed() +
-  labs(x = "Rank", y = "Cum. proportion of sequences") +
-  scale_color_manual(values = color_kingdoms) +
-  scale_linetype_manual(values = c(4, 1)) +
-  theme(legend.position = c(0.15, 0.65))
-
-gini_df <- bind_rows(nr_orders, repdb_orders) %>%
-  group_by(k, db) %>%
-  summarise(
-    gini_index = gini(n),
-    .groups = "drop"
-  )
-
-plot_gini <- ggplot(gini_df, aes(db, gini_index, fill = k)) +
-  geom_line(aes(group = k), color = "grey40", linetype = 2) +
-  geom_point(pch = 21, size = 3) +
-  scale_fill_manual(values = color_kingdoms) +
-  theme(legend.position = "none") +
-  labs(x = "", y = "Gini Index")
-
-
-plot_gini_def <- (plot_lorenz | plot_gini) + plot_layout(widths = c(3, 1))
-plot_gini_def
-ggsave("/data/drive/repdb/figures/FigGini.pdf", plot_gini_def, width = 6, height = 4)
-```
-
-```{r clust_or_not}
 clustnr_num <- read_delim("/gpfs/projects/bsc40/databases/nr_cluster/clustnr_taxid_counts_tax.tsv",
   col_names = c(
     "taxid", "n",
@@ -643,6 +590,89 @@ clustnr_num <- read_delim("/gpfs/projects/bsc40/databases/nr_cluster/clustnr_tax
   mutate(k = case_when(acell == "Viruses" ~ acell, .default = k), db = "clustnr") %>%
   select(-acell, -r, -cell)
 
+nr_classes <- nr_num %>%
+  group_by(k, p, c) %>%
+  # filter(!is.na(o)) %>%
+  summarise(n = sum(n)) %>%
+  mutate(db = "nr") %>%
+  ungroup()
+
+clustnr_classes <- clustnr_num %>%
+  group_by(k, p, c) %>%
+  # filter(!is.na(o)) %>%
+  summarise(n = sum(n)) %>%
+  mutate(db = "clustnr") %>%
+  ungroup()
+
+repdb_classes <- repdb_df %>%
+  group_by(k, p, c) %>%
+  # filter(!is.na(o)) %>%
+  summarise(n = sum(num_seqs)) %>%
+  mutate(db = "repdb") %>%
+  ungroup()
+
+# plot_lorenz <- bind_rows(nr_classes, 
+#                          clustnr_classes,
+#                          repdb_classes) %>%
+#   group_by(k, db) %>%
+#   arrange(n) %>%
+#   mutate(
+#     rank = row_number(n) / n(),
+#     cs = cumsum(n) / sum(n)
+#   ) %>%
+#   ggplot(aes(x = rank, y = cs, color = k, linetype = db)) +
+#   geom_line() +
+#   geom_abline(intercept = 0, slope = 1) +
+#   coord_fixed() +
+#   labs(x = "Rank", y = "Cum. proportion of sequences") +
+#   scale_color_manual(values = color_kingdoms) +
+#   scale_linetype_manual(values = c(4, 1)) +
+#   theme(legend.position = c(0.15, 0.65))
+
+clustrepdb_classes <- select(clust_stats, c, num_seqs, db) %>% 
+  left_join(distinct(tax, k, p, c)) %>% 
+  group_by(k, p, c) %>% 
+  summarise(n = sum(num_seqs)) %>% 
+  mutate(db = "clustrepdb") %>% 
+  ungroup()
+
+plot_gini <- bind_rows(nr_classes, 
+          clustnr_classes,
+          repdb_classes,
+          clustrepdb_classes) %>%
+  group_by(k, db) %>%
+  summarise(
+    gini_index = gini(n),
+    .groups = "drop"
+  ) %>% 
+  mutate(db = factor(db, levels = names(color_benchdbs))) %>% 
+  ggplot(aes(db, gini_index, fill = k)) +
+  geom_line(aes(group = k), color = "grey40", linetype = 2) +
+  geom_point(pch = 21, size = 3) +
+  scale_fill_manual(values = color_kingdoms) +
+  scale_y_continuous(limits = c(0.65, 1)) +
+  guides(fill=guide_legend(nrow=2, byrow=TRUE, 
+                           override.aes = list(size=2))) + 
+  theme(legend.position = c(0.32, 0.15), 
+        legend.key.spacing.y = unit(0,"mm"),
+        legend.key.spacing.x = unit(0,"mm"),
+        legend.key.size = unit(3,"mm"),
+        legend.key = element_rect(fill="white"),
+        legend.background = element_rect(fill="white"),
+        legend.text = element_text(size=6, margin = unit(c(0,0,0,.25), "mm")),
+        legend.title = element_text(size=7, margin = unit(c(0,0,.5,0), "mm"))) +
+  labs(x = "", y = "Gini Index", fill="Kingdom") 
+
+plot_red <- plot_gini + plot_size + plot_reduction + 
+  plot_layout(widths = c(3.7, 1, 7)) +
+  plot_annotation(tag_levels = 'A') 
+
+# plot_gini_def <- (plot_lorenz | plot_gini) + plot_layout(widths = c(3, 1))
+# # plot_gini_def
+# ggsave("/data/drive/repdb/figures/FigGini.pdf", plot_gini_def, width = 6, height = 4)
+```
+
+```{r clust_or_not}
 reduction_nr <- bind_rows(
   group_by(nr_num, db, k, p, c) %>% summarise(num_seqs = sum(n)),
   group_by(clustnr_num, db, k, p, c) %>% summarise(num_seqs = sum(n))
@@ -688,20 +718,25 @@ reduction_repdb %>%
 
 plot_reduction <- bind_rows(reduction_nr, reduction_repdb) %>%
   ggplot(aes(prop_reduction, k)) +
+  ggbeeswarm::geom_quasirandom(
+    pch = 21, aes(fill = k, size = size),
+    stroke = .25, alpha = .75
+  ) + # %>% ggblend::blend("lighten")
   ggrepel::geom_text_repel(
     data = reduction_repdb %>%
       group_by(k) %>%
       top_n(3, prop_reduction),
     aes(label = c),
     size = 1.5,
-    force_pull = 0.00001,
-    direction = "y",
-    segment.size = 0.1
+    # force = .15,
+    # box.padding = .5,
+    # nudge_x = .05,
+    # nudge_y = .25,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 10
+
   ) +
-  ggbeeswarm::geom_quasirandom(
-    pch = 21, aes(fill = k, size = size),
-    stroke = .25, alpha = .75
-  ) + # %>% ggblend::blend("lighten")
   # min.segment.length = unit(2, "cm")) +
   facet_wrap(~db, scales = "free_x") +
   labs(x = "% Reduced", y = "") +
@@ -732,8 +767,13 @@ plot_size <- tibble(
   labs(x = "", y = "N") +
   theme(legend.position = "none")
 
-plot_red <- (plot_size | plot_reduction) + plot_layout(widths = c(1, 6))
-ggsave("/data/drive/repdb/figures/FigRed.pdf", plot_red, height = 3, width = 8)
+# plot_red <- (plot_size | plot_reduction) + 
+#   plot_layout(widths = c(1, 6))
+plot_red <- plot_size + plot_gini + plot_reduction + 
+  plot_layout(widths = c(1,3.7, 7)) +
+  plot_annotation(tag_levels = 'A') 
+
+ggsave("/data/drive/repdb/figures/FigRed.pdf", plot_red, height = 3, width = 9)
 
 # the E. coli problem in nr
 ecoli <- as.numeric(readLines("/gpfs/projects/bsc40/databases/nr/ecoli.ids"))
@@ -825,7 +865,8 @@ plot_cont_prot <- euk_df %>%
   geom_boxplot(aes(color=type), size=.2, outlier.size = .1) +
   ggrepel::geom_text_repel(
     data = . %>% filter(contamination > 20),
-    aes(label = g), size = 1.5,
+    aes(label = g), 
+    size = 1.5,
     force = .1,
     box.padding = 0.1,
     nudge_x = 1,
@@ -838,7 +879,7 @@ plot_cont_prot <- euk_df %>%
   ) +
   labs(x = "% Contaminated", y = "Eukaryotic class",
        color="Data Type") +
-  guides(color=guide_legend(nrow=3,byrow=TRUE,
+  guides(color=guide_legend(ncol=1,byrow=TRUE,
                             override.aes = list(linewidth=.3, 
                                                 fill="white"))) + 
   scale_color_manual(values = type_palette) +
@@ -850,25 +891,11 @@ plot_cont_prot <- euk_df %>%
         legend.key.size = unit(3,"mm"),
         legend.key = element_rect(fill="white"),
         legend.background = element_rect(fill="white"),
-        legend.position = c(0.75,0.92))
-
-cont_bottom <- (plot_cont_db | plot_type_db) + 
-  plot_layout(axes = "collect")
-
-plot_cont <- (plot_cont_prot / cont_bottom) + 
-  plot_layout(heights = c(5, 1)) + 
-  plot_annotation(tag_levels = 'A')
-ggsave("/data/drive/repdb/figures/FigCont.pdf",plot_cont, width = 5.5, height = 6)
-
-euk_df %>% 
-  group_by(type) %>% 
-  summarise(mean(contamination),
-            max(contamination))
+        legend.position = c(0.75,0.88))
 ```
 
-
 ```{r co-occurence}
-pair_cooc <- read_delim("results/contamination/pair_counts.tsv",
+pair_cooc <- read_delim("../repdb_dev/results/contamination/pair_counts.tsv",
   col_names = c("n", "tmpq", "tmpt")
 ) %>%
   mutate(
@@ -890,6 +917,60 @@ mixed_pairs <- pair_cooc %>%
   left_join(tax, by = c("proka" = "mnemo")) %>%
   filter(k.x == "Eukaryota" & k.y != "Eukaryota")
 
+top_coocs <- mixed_pairs %>% 
+  filter(euka %in% filter(euk_df, contamination >= 5)$mnemo) %>%
+  rename("clade"="g.y") %>% 
+  count(euka, k.y, clade) %>% 
+  filter(n>5) %>%
+  group_by(euka) %>% 
+  mutate(prop = n/sum(n),
+         scaled_prop = scales::rescale(prop)) %>% 
+  mutate(is_first = dense_rank(desc(n))==1) %>% 
+  ungroup() %>% 
+  left_join(tax, by = c("euka" = "mnemo")) 
+
+top_1_cooc <- top_coocs %>% 
+  group_by(euka) %>% 
+  slice_max(order_by = scaled_prop, n = 1, with_ties = F) %>% 
+  mutate(scaled_prop=1.01) %>% 
+  arrange(clade)
+
+plot_cooc <- top_coocs %>% 
+  mutate(s = factor(s, levels = unique(top_1_cooc$s))) %>% 
+  ggplot(aes(scaled_prop, s)) + 
+  geom_point(aes(color=is_first), pch="|") +
+  geom_text(aes(label=clade), 
+            data = top_1_cooc, hjust = 0, size=1.5) + 
+  scale_x_continuous(expand = expansion(add = c(.025,.25)),
+                     breaks = seq(0,1,.25)) + 
+  scale_color_manual(values = c("grey60", "red")) + 
+  labs(y="", 
+       x="Scaled prop. of Co-occurence") +
+  theme(legend.position = "none",
+        axis.text.y = element_text(size = 5))
+```
+
+
+```{r patch-cont-plot}
+cont_left <- (plot_cont_db / plot_cont_prot) +
+  plot_layout(heights = c(1, 5))
+cont_right <- (plot_type_db / plot_cooc) +
+  plot_layout(heights = c(1, 5))
+
+plot_cont <- (cont_left | cont_right) +
+  plot_annotation(tag_levels = 'A')
+
+euk_df %>% 
+  group_by(type) %>% 
+  summarise(mean(contamination),
+            max(contamination))
+```
+
+
+
+
+
+```{r co-occurence-difficult}
 # proteomes with at least 5% contaminated proteins
 interesting <- filter(euk_df, contamination >= 5)$mnemo
 
@@ -906,37 +987,37 @@ interesting_proka_phylum <- mean_cont_df %>%
   count() %>%
   filter(n >= 10)
 
-pdf(NULL)
-mean_cont_df %>%
-  right_join(interesting_proka_phylum) %>%
-  complete(euka, nesting(k.y, p.y), fill = list(mean_cont = 0)) %>%
-  group_by(euka) %>%
-  mutate(across(mean_cont, scales::rescale)) %>%
-  ungroup() %>%
-  left_join(tax, by = c("euka" = "mnemo")) %>%
-  mutate(sp_lab = paste0(euka, "-", word(s, 1, 2))) %>%
-  tidy_heatmap(sp_lab, p.y, mean_cont,
-    # scale = "row",
-    cluster_rows = T, cluster_cols = T,
-    # clustering_distance_cols = "minkowski",
-    annotation_col = c("k.y"),
-    annotation_row = "p",
-    color_legend_n = 9,
-    colors = c("#ffffff", "#ee4445"),
-    annotation_colors = list(
-      k.y = color_kingdoms,
-      p = colors_euka_phylum
-    ),
-    width = 6.2,
-    height = 7.5,
-    fontsize_row = 5
-    # filename = "results/plots/hm_cont.pdf"
-  )
-plot_hm <- grid::grid.grab()
-dev.off()
-
-ggsave("/data/drive/repdb/figures/FigHm.pdf", plot_hm, 
-       width = 6.2, height = 7.5)
+# pdf(NULL)
+# mean_cont_df %>%
+#   right_join(interesting_proka_phylum) %>%
+#   complete(euka, nesting(k.y, p.y), fill = list(mean_cont = 0)) %>%
+#   group_by(euka) %>%
+#   mutate(across(mean_cont, scales::rescale)) %>%
+#   ungroup() %>%
+#   left_join(tax, by = c("euka" = "mnemo")) %>%
+#   mutate(sp_lab = paste0(euka, "-", word(s, 1, 2))) %>%
+#   tidy_heatmap(sp_lab, p.y, mean_cont,
+#     # scale = "row",
+#     cluster_rows = T, cluster_cols = T,
+#     # clustering_distance_cols = "minkowski",
+#     annotation_col = c("k.y"),
+#     annotation_row = "p",
+#     color_legend_n = 9,
+#     colors = c("#ffffff", "#ee4445"),
+#     annotation_colors = list(
+#       k.y = color_kingdoms,
+#       p = colors_euka_phylum
+#     ),
+#     width = 6.2,
+#     height = 7.5,
+#     fontsize_row = 5
+#     # filename = "results/plots/hm_cont.pdf"
+#   )
+# plot_hm <- grid::grid.grab()
+# dev.off()
+# 
+# ggsave("/data/drive/repdb/figures/FigHm.pdf", plot_hm, 
+#        width = 6.2, height = 7.5)
 
 mixed_pairs %>% 
   filter(q=="EP01030", n>500) %>% 
@@ -982,8 +1063,7 @@ mixed_pairs %>%
 ```{r fig2}
 recall_plot <- readRDS("../decon/results/plots/recall.RDS")
 # fig2 <- (((recall_plot / plot_cont_db) + plot_layout(heights = c(4,1))) | plot_hm ) + plot_layout(widths = c(1, 1.75))
-ggsave("/data/drive/repdb/figures/FigRecall.pdf", recall_plot, 
-       width = 4, height = 4)
+
 ```
 
 
@@ -1033,8 +1113,19 @@ viral_pairs %>%
 ```
 
 ```{r comparison}
-plot_cohen <- readRDS("results/plots/comparison.Rds")
-ggsave("/data/drive/repdb/figures/FigCohen.pdf", plot_cohen, width = 6.5, height = 4.5)
+plot_cohen <- readRDS("results/plots/comparison.Rds") +
+  plot_annotation(tag_levels = "A")
+```
+
+```{r save-fig-paper}
+
+ggsave("/data/drive/repdb/figures/Fig2.pdf", p4, width = 11, height = 11)
+ggsave("/data/drive/repdb/figures/Fig3.pdf", plot_cont, width = 9, height = 6)
+ggsave("/data/drive/repdb/figures/Fig4.pdf", plot_red, height = 3, width = 9)
+ggsave("/data/drive/repdb/figures/Fig5.pdf", plot_cohen, width = 6.5, height = 4.5)
+ggsave("/data/drive/repdb/figures/FigS1.pdf", recall_plot, width = 4, height = 4)
+ggsave("/data/drive/repdb/figures/FigS2.pdf", pvir2, width = 4.3, height = 4.5)
+
 ```
 
 

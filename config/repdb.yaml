@@ -15,12 +15,12 @@ dbs:
     # Custom databases: uncomment and add your database entries
     # Example:
     custom:
-      # clust_repdb: 
-      #   ids: resources/repdb.ids #/gpfs/projects/bsc40/current/gmutti/projects/repdb_dev/results/meta/repdb.ids
-      #   cluster: 
-      #     level: class
-      #     identity: 0.9
-      #     coverage: 0.9
+      clustered_repdb: 
+        ids: resources/repdb.ids #/gpfs/projects/bsc40/current/gmutti/projects/repdb_dev/results/meta/repdb.ids
+        cluster: 
+          level: class
+          identity: 0.9
+          coverage: 0.9
       # random: 
       #   ids: resources/random_500.ids
       #   cluster: 
@@ -33,17 +33,17 @@ dbs:
       #     level: order
       #     identity: 0.8
       #     coverage: 0.8
-      smalleuks: 
-        ids: resources/eukas_50.ids
-        cluster: 
-          level: order
-          identity: 0.8
-          coverage: 0.8
-        decontaminate:
-          identity: 0.9
-          coverage: 0.5
-          cov_mode: 3
-          prop_euka: 0.5
+      # smalleuks: 
+      #   ids: resources/eukas_50.ids
+      #   cluster: 
+      #     level: order
+      #     identity: 0.8
+      #     coverage: 0.8
+      #   decontaminate:
+      #     identity: 0.9
+      #     coverage: 0.5
+      #     cov_mode: 3
+      #     prop_euka: 0.5
 
 # If repdb is not specified and you specified to decontaminate your custom database, 
 # the pipeline will still produce the repdb.fa.gz

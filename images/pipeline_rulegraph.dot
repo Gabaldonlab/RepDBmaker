@@ -1,0 +1,112 @@
+digraph snakemake_dag {
+    graph[bgcolor=white, margin=0];
+    node[shape=box, style=rounded, fontname=sans,                 fontsize=10, penwidth=2];
+    edge[penwidth=2, color=grey];
+	0[label = "all", color = "0.39 0.6 0.85", style="rounded"];
+	1[label = "online_resources", color = "0.63 0.6 0.85", style="rounded"];
+	2[label = "download_taxdump", color = "0.49 0.6 0.85", style="rounded"];
+	3[label = "download_unieuk", color = "0.29 0.6 0.85", style="rounded"];
+	4[label = "get_virus_genomes", color = "0.03 0.6 0.85", style="rounded"];
+	5[label = "get_gtdb_tax", color = "0.20 0.6 0.85", style="rounded"];
+	6[label = "get_gtdb_genomes", color = "0.47 0.6 0.85", style="rounded"];
+	7[label = "get_uniprot_meta", color = "0.42 0.6 0.85", style="rounded"];
+	8[label = "get_eukprot", color = "0.24 0.6 0.85", style="rounded"];
+	9[label = "get_p10k", color = "0.08 0.6 0.85", style="rounded"];
+	10[label = "get_virus_class", color = "0.14 0.6 0.85", style="rounded"];
+	11[label = "make_diamonddb", color = "0.52 0.6 0.85", style="rounded"];
+	12[label = "make_db_fasta", color = "0.04 0.6 0.85", style="rounded"];
+	13[label = "repdb_genome_table", color = "0.00 0.6 0.85", style="rounded"];
+	14[label = "repdb_taxonomy", color = "0.28 0.6 0.85", style="rounded"];
+	15[label = "gtdb_species_clusters", color = "0.01 0.6 0.85", style="rounded"];
+	16[label = "decompress_gtdb_genomes", color = "0.11 0.6 0.85", style="rounded"];
+	17[label = "paths_gtdb", color = "0.36 0.6 0.85", style="rounded"];
+	18[label = "virus_taxonomy", color = "0.53 0.6 0.85", style="rounded"];
+	19[label = "select_repdb_eukaryotes", color = "0.54 0.6 0.85", style="rounded"];
+	20[label = "uniprot_taxonomy", color = "0.25 0.6 0.85", style="rounded"];
+	21[label = "eukprot_taxonomy", color = "0.18 0.6 0.85", style="rounded"];
+	22[label = "p10k_taxonomy", color = "0.16 0.6 0.85", style="rounded"];
+	23[label = "custom_taxonomy", color = "0.09 0.6 0.85", style="rounded"];
+	24[label = "create_full_taxdump", color = "0.10 0.6 0.85", style="rounded"];
+	25[label = "eukaryotes_taxonomy", color = "0.33 0.6 0.85", style="rounded"];
+	26[label = "make_db_map", color = "0.55 0.6 0.85", style="rounded"];
+	27[label = "make_mmseqsdb", color = "0.64 0.6 0.85", style="rounded"];
+	28[label = "make_blastdb", color = "0.60 0.6 0.85", style="rounded"];
+	29[label = "merge_clustered", color = "0.26 0.6 0.85", style="rounded"];
+	30[label = "db_clades", color = "0.59 0.6 0.85", style="rounded"];
+	31[label = "custom_dbs_taxonomy", color = "0.40 0.6 0.85", style="rounded"];
+	32[label = "custom_genome_table", color = "0.43 0.6 0.85", style="rounded"];
+	33[label = "write_cluster_params", color = "0.34 0.6 0.85", style="rounded"];
+	34[label = "db_stats", color = "0.05 0.6 0.85", style="rounded"];
+	35[label = "clustdb_stats", color = "0.30 0.6 0.85", style="rounded"];
+	11 -> 0
+	34 -> 0
+	35 -> 0
+	28 -> 0
+	33 -> 0
+	1 -> 0
+	27 -> 0
+	2 -> 1
+	4 -> 1
+	8 -> 1
+	3 -> 1
+	7 -> 1
+	9 -> 1
+	10 -> 1
+	5 -> 1
+	6 -> 1
+	4 -> 10
+	24 -> 11
+	26 -> 11
+	29 -> 11
+	12 -> 11
+	13 -> 12
+	24 -> 12
+	32 -> 12
+	14 -> 13
+	18 -> 14
+	19 -> 14
+	15 -> 14
+	24 -> 14
+	16 -> 15
+	17 -> 16
+	6 -> 16
+	5 -> 17
+	4 -> 18
+	8 -> 19
+	20 -> 19
+	7 -> 19
+	23 -> 19
+	9 -> 19
+	22 -> 19
+	21 -> 19
+	3 -> 20
+	8 -> 20
+	7 -> 20
+	8 -> 21
+	3 -> 22
+	8 -> 22
+	9 -> 22
+	18 -> 24
+	25 -> 24
+	5 -> 24
+	22 -> 25
+	21 -> 25
+	20 -> 25
+	23 -> 25
+	12 -> 26
+	24 -> 27
+	26 -> 27
+	29 -> 27
+	12 -> 27
+	26 -> 28
+	29 -> 28
+	12 -> 28
+	30 -> 29
+	31 -> 30
+	24 -> 31
+	31 -> 32
+	24 -> 33
+	13 -> 34
+	32 -> 34
+	30 -> 35
+}            
