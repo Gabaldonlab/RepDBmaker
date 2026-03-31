@@ -155,25 +155,31 @@ virus_id=$(grep $(echo {wildcards.virus} | sed 's/^GCF//') {input.ids})
 unzip -p {input.folder} ncbi_dataset/data/$virus_id/protein.faa | gzip > {output}
 '''
 
-rule repdb_genome_table:
-    """Create comprehensive genome table with selected RepDB genomes (unfiltered)"""
+rule repdb_online_genomes:
+    """touch files for those dbs that need internet access"""
     input:
         uniprot_repdb,
         p10k_repdb,
-        eukprot_repdb,
-        custom_repdb,
-        gtdb_repdb,
-        viruses_repdb,
-    output: "results/dbs/repdb/genome_table.tsv"
+    output: "results/dbs/repdb/online_gnms.txt"
     localrule: True
     shell:'''
-> {output}
-for genome in {input}; do
-    bn=$(basename $genome ".faa.gz")
-    path=$(realpath $genome)
-    echo -e "$path\\t$bn"
-done >> {output}
+touch {output}
 '''
+
+rule repdb_genome_table:
+    """Create comprehensive genome table with selected RepDB genomes (unfiltered)"""
+    input:
+        custom_repdb,
+        uniprot_repdb,
+        p10k_repdb,
+        eukprot_repdb,
+        gtdb_repdb,
+        viruses_repdb
+    output: "results/dbs/repdb/genome_table.tsv"
+    localrule: True
+    conda: "../envs/python.yaml"
+    script: "../scripts/make_genome_table.py"
+
 
 rule custom_genome_table:
     """Create comprehensive genome table for custom database with requested genomes (unfiltered)"""
@@ -186,11 +192,6 @@ rule custom_genome_table:
         viruses_custom,
     output: "results/dbs/{db}/genome_table.tsv"
     localrule: True
-    shell:'''
-> {output}
-for genome in {input}; do
-    bn=$(basename $genome ".faa.gz")
-    path=$(realpath $genome)
-    echo -e "$path\\t$bn"
-done >> {output}
-'''
+    conda: "../envs/python.yaml"
+    script: "../scripts/make_genome_table.py"
+

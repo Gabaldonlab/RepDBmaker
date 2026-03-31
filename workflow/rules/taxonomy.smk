@@ -123,9 +123,11 @@ checkpoint repdb_taxonomy:
     output: "results/taxonomies/repdb_taxonomy.tsv"
     localrule: True
     shell:'''
-cat <(shuf -n 50 {input.gtdb}) <(shuf -n 50 {input.virus}) <(shuf -n 50 {input.filtered_euka}) | cut -f1 | \
+cat {input.gtdb} {input.virus} {input.filtered_euka} | cut -f1 | \
 csvtk join -H -t - {input.full_table} > {output}
 '''
+# cat <(shuf -n 50 {input.gtdb}) <(shuf -n 50 {input.virus}) <(shuf -n 50 {input.filtered_euka}) | cut -f1 | \
+
 # cat {input.gtdb} {input.virus} $(shuf -n 20 {input.filtered_euka}) | cut -f1 | \
 
 def get_custom_codes(wildcards):

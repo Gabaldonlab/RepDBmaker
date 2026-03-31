@@ -15,12 +15,12 @@ dbs:
     # Custom databases: uncomment and add your database entries
     # Example:
     custom:
-      clust_repdb: 
-        ids: resources/repdb.ids #/gpfs/projects/bsc40/current/gmutti/projects/repdb_dev/results/meta/repdb.ids
-        cluster: 
-          level: class
-          identity: 0.9
-          coverage: 0.9
+      # clust_repdb: 
+      #   ids: resources/repdb.ids #/gpfs/projects/bsc40/current/gmutti/projects/repdb_dev/results/meta/repdb.ids
+      #   cluster: 
+      #     level: class
+      #     identity: 0.9
+      #     coverage: 0.9
       # random: 
       #   ids: resources/random_500.ids
       #   cluster: 

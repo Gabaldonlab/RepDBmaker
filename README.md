@@ -1,176 +1,172 @@
-# RepDB: Comprehensive Protein Sequence Database Builder
+# RepDBmaker Pipeline
 
-RepDB is a Snakemake-based pipeline that builds high-quality, taxonomically-annotated protein sequence databases for homology searches. It combines genomes from multiple public sources (GTDB, UniProt, EukProt, P10K, NCBI RefSeq) and supports custom user-defined databases.
+This repository contains a Snakemake-based workflow to build taxonomically annotated protein sequence databases from multiple public sources and custom genome collections.
 
-## Features
+## What this pipeline does
 
-- 🧬 **Multiple database sources**: GTDB (prokaryotes), UniProt/EukProt/P10K (eukaryotes), NCBI RefSeq (viruses)
-- 🔄 **Multiple output formats**: Diamond, MMseqs2 (Blast support planned)
-- 📚 **Flexible database selection**: Build RepDB, clustered variants, or fully custom databases
-- 🏷️ **Full taxonomic annotation**: Each sequence is mapped to NCBI taxonomy
-- 📦 **Scalable**: Easily add custom genomes via configuration
-- 🧹 **Quality filtering**: Automatic deduplication and representative selection for eukaryotes
+- Downloads and assembles taxonomic resources for:
+  - prokaryotes from [GTDB](https://gtdb.ecogenomic.org/)
+  - eukaryotes from [EukProt](https://evocellbio.com/eukprot/), [P10K](https://ngdc.cncb.ac.cn/p10k/) and [UniProt](https://www.uniprot.org/proteomes?query=%28taxonomy_id%3A2759%29)
+  - viruses from [NCBI Virus](https://www.ncbi.nlm.nih.gov/labs/virus/vssi/)
+- Parses genomes into protein FASTA files with accession-to-taxonomy mapping
+- Creates searchable sequence databases in Diamond, MMseqs2, and BLAST formats
+- Optionally clusters database sequences by taxonomic rank
+- Optionally decontaminates selected databases using sequence cluster analysis
 
-## Quick Start
+## Repository layout
 
-### 1. Configure
-Edit `config/repdb.yaml` to specify which databases to build:
+- `config/repdb.yaml` - main pipeline configuration
+- `workflow/Snakefile` - main Snakemake entry point
+- `workflow/rules/` - rule files for download, taxonomy, database building, clustering, decontamination, and stats
+- `workflow/envs/` - Conda environment definitions used by the workflow
+- `resources/` - static input files and genome lists used by the pipeline
+
+## Requirements
+
+- Snakemake
+- Conda or Miniconda
+- Internet access for downloading external resources
+- Disk space for large genomic and database collections
+
+The workflow uses the following Conda environments:
+
+- `workflow/envs/python.yaml` — Python, pandas, matplotlib, polars
+- `workflow/envs/homology.yaml` — diamond, mmseqs2, blast
+- `workflow/envs/utils.yaml` — taxonkit, csvtk, ncbi-datasets-cli, jq, seqkit
+- `workflow/envs/R.yaml` — R and visualization/taxonomy packages
+
+## Quick start
+
+1. Load Conda/Snakemake and activate your environment:
+
+```bash
+conda activate snakemake
+```
+
+2. In case you are interested in the available proteomes you can just un this:
+
+```bash
+snakemake -j 1 --until available_proteomes
+```
+
+It will produce the `results/meta/available_proteomes.tsv` that can be easily parsed to further select whatever susbet of proteomes you may be interested in.
+
+3. Alternatively you can run the full workflow directly:
+
+```bash
+snakemake -j 14
+```
+
+## Configuration
+
+Edit `config/repdb.yaml` to select which databases and formats to build. You can also use it as template for any `yaml` file as long as you run:
+
+`snakemake --configfile path/to/custom.yaml`
+
+Key configuration sections:
+
+- `dbs.type` — allowed values: `diamond`, `mmseqs`, `blastp`
+- `dbs.build.repdb` — enable RepDB construction
+- `dbs.build.custom` — define custom databases with genome IDs and optional clustering/decontamination
+- `dbs.gtdb_version` — GTDB release version, `default` is the latest.
+- `files.clades_to_keep` — eukaryotic lineages to retain
+- `files.genomes_to_exclude` — genomes excluded from RepDB
+- `files.new_genomes` — custom genome metadata for `results/proteomes/cus/`
+
+Example custom database entry:
+
 ```yaml
 dbs:
-  type: ["diamond", "mmseqs"]
+  type: ["diamond", "mmseqs", "blastp"]
   build:
-    repdb: True              # Standard RepDB
-    clustered_repdb: True    # Clustered version
-    custom:
-      mydb: "/path/to/genomes.tsv"  # Optional custom database
+    smalleuks:
+      ids: resources/eukas_50.ids
+      cluster:
+        level: order    # Taxonomic Rank to constrain clustering 
+        identity: 0.8   # Clustering Identity
+        coverage: 0.8   # Clustering coverage
+      decontaminate:
+        identity: 0.9   # Clustering identity
+        coverage: 0.5   # Clustering coverage
+        cov_mode: 3     # Clustering coverage mode
+        prop_euka: 0.5  # % of Eukas in contaminant clusters
 ```
 
-### 2. Download Reference Data
-```bash
-snakemake -j 4 --until online_resources
-```
+## Pipeline components
 
-### 3. Build Databases
-```bash
-snakemake -j 48
-```
+### Downloads and metadata
 
-### Filtering Eukaryotes
+The workflow retrieves:
 
-The `clades_to_keep.txt` file controls which eukaryotic lineages to include. The pipeline automatically:
-- Keeps one genome per genus
-- Limits heavily overrepresented families (Opisthokonta, Ciliates) to 20 genomes each
-- Removes duplicated species
+- NCBI taxdump
+- GTDB taxonomy and representative genomes
+- NCBI RefSeq viral genomes
+- UniProt reference proteome metadata
+- EukProt metadata and proteomes
+- P10K metadata and lineage data
+- UniEuk taxonomy resource
 
-### Custom Genome Table Format
+### Taxonomy assembly
 
-Custom genome tables must be TSV files with the path to genomes as the first column:
-```
-/path/to/genome1.faa.gz    d__Eukarya;p__Chordata;c__Mammalia
-/path/to/genome2.faa.gz    d__Eukarya;p__Fungi;c__Ascomycota
-```
-
-## Running the Pipeline
-
-### Step 1: Download External Resources (internet required)
-```bash
-snakemake -j 4 --until online_resources
-```
-
-### Step 2: Build Databases (compute node)
-```bash
-snakemake -j 48 -p
-```
-
-## Output Structure
-
-```
-results/
-├── dbs/                          # Built databases
-│   ├── repdb/
-│   │   ├── repdb.fa.gz          # Full protein sequences
-│   │   ├── repdb.map            # Taxonomy mapping
-│   │   ├── repdb_diamond/       # Diamond index
-│   │   └── repdb_mmseqs/        # MMseqs2 index
-│   ├── clustered_repdb/
-│   │   ├── repdb.fa.gz          # Clustered sequences
-│   │   ├── db_clusters.tsv      # Clustering assignments
-│   │   ├── repdb_diamond/
-│   │   └── repdb_mmseqs/
-│   └── mydb/                     # Custom database (if configured)
-│       ├── repdb.fa.gz
-│       ├── repdb_diamond/
-│       └── repdb_mmseqs/
-├── meta/
-│   ├── full_genome_table.tsv        # All genomes (unfiltered)
-│   ├── repdb_genome_table.tsv       # RepDB genomes (filtered)
-│   ├── repdb_meta.tsv               # RepDB statistics
-│   ├── clustered_repdb_stats.tsv    # Clustering statistics
-│   └── check_resources.txt          # Download status
-├── taxonomies/
-│   ├── full.tsv                     # All taxonomy annotations
-│   ├── repdb.tsv                    # RepDB taxonomy
-│   ├── all_eukaryotes.tsv           # All eukaryotic genomes
-│   └── eukaryotes.tsv               # Filtered eukaryotes
-├── taxdump/
-│   └── full_taxdump/                # NCBI taxdump for all genomes
-└── log/
-    └── dbs/                         # Logs per database
-
-```
-
-## Data Sources
-
-| Source | Type | Coverage |
-|--------|------|----------|
-| GTDB | Prokaryotes | ~360k bacterial/archaeal genomes |
-| UniProt | Eukaryotes | Reference proteomes |
-| EukProt | Eukaryotes | High-quality eukaryotic proteomes |
-| P10K | Eukaryotes | Plant genomes |
-| NCBI RefSeq | Viruses | ~20k viral genomes |
-| Custom | Any | User-provided |
-
-## Example Workflows
-
-### Build RepDB + Clustered Version
-```yaml
-# config/repdb.yaml
-dbs:
-  type: ["diamond", "mmseqs"]
-  build:
-    repdb: True
-    clustered_repdb: True
-```
-```bash
-snakemake -j 48
-```
-
-### Build Multiple Custom Databases
-```yaml
-# config/repdb.yaml
-dbs:
-  type: ["diamond", "mmseqs"]
-  build:
-    repdb: False
-    clustered_repdb: False
-    custom:
-      bacteria: "/data/bacterial_genomes.tsv"
-      archaea: "/data/archaeal_genomes.tsv"
-      viruses: "/data/viral_genomes.tsv"
-```
-```bash
-snakemake -j 48
-# Creates: results/dbs/bacteria/, results/dbs/archaea/, results/dbs/viruses/
-```
-
-## Search the Databases
-
-### Using Diamond
-```bash
-diamond blastp -d results/dbs/repdb/repdb_diamond \
-  -q query.fa -o results.txt -f 6 qseqid tseqid pident
-```
-
-### Using MMseqs2
-```bash
-mmseqs search results/dbs/repdb/repdb_mmseqs \
-  query_db query_db_results tmp --search-type 2
-```
-
-## Disk Space Requirements
-
-| Stage | Space | Notes |
-|-------|-------|-------|
-| Downloads | ~100GB | Can be deleted after processing |
-| Intermediate | ~500GB | GTDB, EukProt FASTA files |
-| Final Databases | ~150GB | Diamond + MMseqs2 indices |
-| **Total** | **~750GB** | Reusable after cleanup |
+- Builds combined taxonomic annotations for viruses, GTDB, and selected eukaryotes
+- Creates RepDB-specific taxonomy using filtered eukaryotes, all viruses, and all GTDB genomes
+- Generates a full taxdump used by database builders and clustering steps
 
 
-## Citation
+### Clustering
+
+- Optionally clusters database sequences by taxonomic clade
+- Uses taxonomic rank values such as `class`, `order`, `family`, etc.
+- Generates per-clade FASTA and cluster output, then merges into a clustered database file
+
+### Decontamination
+
+- Concatenates RepDB and custom database FASTA files for decontamination when configured
+- Runs MMseqs2 clustering to identify sequence clusters
+- Extracts non-singleton clusters and mixed clusters with eukaryotic content
+- Produces `contaminants.txt`, `pair_counts.tsv`, and other diagnostic outputs
+
+## Outputs
+
+Primary output directories and files:
+
+- `results/dbs/<db>/` — built database outputs
+  - `<db>.fa.gz` — compressed protein FASTA
+  - `<db>_accession_map.txt` — accession-to-taxid mapping
+  - `<db>_map` and `<db>_nohead.map` — BLAST/MMseqs maps
+  - `<db>_diamond` — Diamond database index
+  - `<db>_mmseqs` — MMseqs2 database index
+  - `<db>_blastp` — BLASTP database files
+- `results/dbs/<db>/cluster/cluster_params.yaml` — clustering settings
+- `results/dbs/<db>/cluster/<db>_clustered.fa.gz` — clustered FASTA output
+- `results/dbs/<db>/decontaminate/decontaminate_params.yaml` — decontamination settings
+- `results/dbs/<db>/decontaminate/contaminants.txt` — decontamination candidates
+- `results/dbs/<db>/decontaminate/pair_counts.tsv` — cluster pair counts
+- `results/stats/` — database and clustering statistics
+- `results/meta/check_resources.txt` — validation of downloaded assets
+- `results/taxonomies/` — taxonomy annotations and RepDB selection outputs
+- `results/taxdump/repdb_taxdump/` — taxonkit taxdump for combined genomes
+
+## Benchmarking
+
+A separate benchmark workflow is available at `workflow/benchmark.smk` and uses `config/benchmark.yaml` to compare RepDB against reference databases such as NR and clustered NR.
+
+## Custom databases
+
+To add a custom database:
+
+1. Define an entry under `dbs.build.custom` in `config/repdb.yaml`
+2. Provide an `ids` file containing the genome identifiers or metadata
+3. Optionally add `cluster` and `decontaminate` sections for clustering and contamination filtering
+
+The pipeline will create `results/dbs/<custom_db>/` with the expected outputs.
 
 
-### Ideas
+## Useful files
 
-* Filter gtdb to reduce redundancy? Results were not satisfying.
-* genome|gffs db?
+- `workflow/Snakefile` — main workflow logic
+- `workflow/rules/` — modular rule definitions
+- `workflow/envs/` — Conda environments used by rules
+- `config/repdb.yaml` — pipeline configuration
+- `resources/` — genome lists, excluded genomes, and clade filters
+

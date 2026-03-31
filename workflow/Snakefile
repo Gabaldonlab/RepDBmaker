@@ -54,9 +54,6 @@ def get_decontaminated_database_targets():
     """Return databases that need decontamination outputs"""
     return [db for db in get_database_targets() if _is_db_decon(db)]
 
-
-print(get_clustered_database_targets())
-
 rule all:
     input:
         # Downloadable files
