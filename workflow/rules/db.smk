@@ -14,115 +14,163 @@ def get_db_fa(wildcards):
         return f"results/dbs/{wildcards.db}/{wildcards.db}_clustered.fa.gz"
     return f"results/dbs/{wildcards.db}/{wildcards.db}_raw.fa.gz"
 
-mmseqs_ext = [".dbtype", "_h", "_h.dbtype", "_h.index", 
-              ".lookup", ".index", "_mapping", ".source", "_taxonomy"]
+
+mmseqs_ext = [
+    ".dbtype",
+    "_h",
+    "_h.dbtype",
+    "_h.index",
+    ".lookup",
+    ".index",
+    "_mapping",
+    ".source",
+    "_taxonomy",
+]
 
 
 rule make_db_fasta:
     input:
         table="results/dbs/{db}/genome_table.tsv",
         taxdump=rules.create_full_taxdump.output.full_taxdump,
-        stats="results/stats/{db}_stats.tsv" # if this failed it means some proteomes had problems while downloading!
+        stats="results/stats/{db}_stats.tsv",  # if this failed it means some proteomes had problems while downloading!
     output:
         fa=temp("results/dbs/{db}/{db}_raw.fa.gz"),
-        idmap="results/dbs/{db}/{db}_accession_map.txt"
+        idmap="results/dbs/{db}/{db}_accession_map.txt",
     # log: "results/log/dbs/repdb/parse.log"
     threads: 112
-    benchmark: "results/benchmarks/dbs/{db}/parse.txt"
+    benchmark:
+        "results/benchmarks/dbs/{db}/parse.txt"
     # group: "create_db"
-    conda: "../envs/python.yaml"
+    conda:
+        "../envs/python.yaml"
     # group: "create_db"
-    script: "../scripts/parse_gnm_v2.py"
+    script:
+        "../scripts/parse_gnm_v2.py"
 
 
 rule make_db_map:
     input:
-        idmap=rules.make_db_fasta.output.idmap
+        idmap=rules.make_db_fasta.output.idmap,
     output:
         headermap="results/dbs/{db}/{db}.map",
-        noheadermap="results/dbs/{db}/{db}_nohead.map"
+        noheadermap="results/dbs/{db}/{db}_nohead.map",
     # localrule: True
     # group: "create_db"
-    shell:'''
+    conda:
+        "../envs/utils.yaml"
+    shell:
+        """
 echo -e "accession.version\\ttaxid" > {output.headermap}
 cut -f2 {input.idmap} | awk -F'\\t' '{{split($NF, a, "_"); print $0"\\t"a[1]}}' >> {output.headermap}
 awk 'NR>1' {output.headermap} > {output.noheadermap}
-'''
+"""
+
 
 # using mmseqs was the fastest way I found to extract clade specific fastas.
 rule make_mmseqsdb_clustering:
     input:
         fa=rules.make_db_fasta.output.fa,
         taxidmap=rules.make_db_map.output.noheadermap,
-        taxdump=rules.create_full_taxdump.output.full_taxdump
-    output: 
+        taxdump=rules.create_full_taxdump.output.full_taxdump,
+    output:
         db=temp("results/dbs/{db}/cluster/{db}_mmseqs"),
-        db_extra=temp(expand("results/dbs/{{db}}/cluster/{{db}}_mmseqs{ext}", ext=mmseqs_ext))
-    log: "results/log/dbs/{db}/make_mmseqs_clustering.log"
-    benchmark: "results/benchmarks/dbs/{db}/make_mmseqs_clustering.txt"
+        db_extra=temp(
+            expand("results/dbs/{{db}}/cluster/{{db}}_mmseqs{ext}", ext=mmseqs_ext)
+        ),
+    log:
+        "results/log/dbs/{db}/make_mmseqs_clustering.log",
+    benchmark:
+        "results/benchmarks/dbs/{db}/make_mmseqs_clustering.txt"
     threads: 112
     # group: "create_db"
-    conda: "../envs/homology.yaml"
-    shell:''' 
+    conda:
+        "../envs/homology.yaml"
+    shell:
+        """ 
 mmseqs createdb {input.fa} {output.db} > {log}
 mmseqs createtaxdb {output.db} $TMPDIR --ncbi-tax-dump {input.taxdump} \
 --tax-mapping-file {input.taxidmap} --threads {resources.cpus_per_task} >> {log}
-'''
+"""
 
-# this is done in order to set the unclustered fasta as tmp 
+
+# this is done in order to set the unclustered fasta as tmp
 rule unify_fasta:
-    input: get_db_fa
-    output: "results/dbs/{db}/{db}.fa.gz"
+    input:
+        get_db_fa,
+    output:
+        "results/dbs/{db}/{db}.fa.gz",
     localrule: True
-    shell: "cp {input} {output}"
+    conda:
+        "../envs/utils.yaml"
+    shell:
+        "cp {input} {output}"
+
 
 rule make_blastdb:
-    input: 
+    input:
         fa=rules.unify_fasta.output,
-        taxidmap=rules.make_db_map.output.noheadermap
-    output: "results/dbs/{db}/{db}_blastp"
-    log: "results/log/dbs/{db}/make_blastp.log"
-    benchmark: "results/benchmarks/dbs/{db}/make_blastp.txt"
-    conda: "../envs/homology.yaml"
+        taxidmap=rules.make_db_map.output.noheadermap,
+    output:
+        "results/dbs/{db}/{db}_blastp",
+    log:
+        "results/log/dbs/{db}/make_blastp.log",
+    benchmark:
+        "results/benchmarks/dbs/{db}/make_blastp.txt"
+    conda:
+        "../envs/homology.yaml"
     # group: "create_db"
-    shell:'''
+    shell:
+        """
 gunzip -c {input.fa} | makeblastdb -in - -parse_seqids -taxid_map {input.taxidmap} \
 -dbtype prot -out {output} -title {wildcards.db} -logfile {log}
 touch {output}
-'''
+"""
+
 
 rule make_diamonddb:
-    input: 
+    input:
         fa=rules.unify_fasta.output,
         taxidmap="results/dbs/{db}/{db}.map",
-        taxdump=rules.create_full_taxdump.output.full_taxdump
-    output: "results/dbs/{db}/{db}_diamond"
-    log: "results/log/dbs/{db}/make_diamond.log"
-    benchmark: "results/benchmarks/dbs/{db}/make_diamond.txt"
+        taxdump=rules.create_full_taxdump.output.full_taxdump,
+    output:
+        "results/dbs/{db}/{db}_diamond",
+    log:
+        "results/log/dbs/{db}/make_diamond.log",
+    benchmark:
+        "results/benchmarks/dbs/{db}/make_diamond.txt"
     threads: 48
-    conda: "../envs/homology.yaml"
+    conda:
+        "../envs/homology.yaml"
     # group: "create_db"
-    shell:'''
+    shell:
+        """
 diamond makedb --in {input.fa} -d {output} --threads {resources.cpus_per_task} \
 --taxonnodes {input.taxdump}/nodes.dmp --taxonmap {input.taxidmap} 2> {log}
 touch {output}
-'''
+"""
+
+
 # --taxonnodes {input.taxdump}/nodes.dmp --taxonnames {input.taxdump}/names.dmp
 
+
 rule make_mmseqsdb:
-    input: 
+    input:
         fa=rules.unify_fasta.output,
         taxidmap="results/dbs/{db}/{db}_nohead.map",
-        taxdump=rules.create_full_taxdump.output.full_taxdump
-    output: "results/dbs/{db}/{db}_mmseqs"
-    log: "results/log/dbs/{db}/make_mmseqs.log"
-    benchmark: "results/benchmarks/dbs/{db}/make_mmseqs.txt"
+        taxdump=rules.create_full_taxdump.output.full_taxdump,
+    output:
+        "results/dbs/{db}/{db}_mmseqs",
+    log:
+        "results/log/dbs/{db}/make_mmseqs.log",
+    benchmark:
+        "results/benchmarks/dbs/{db}/make_mmseqs.txt"
     threads: 112
-    conda: "../envs/homology.yaml"
+    conda:
+        "../envs/homology.yaml"
     # group: "create_db"
-    shell:'''
+    shell:
+        """
 mmseqs createdb {input.fa} {output} > {log}
 mmseqs createtaxdb {output} $TMPDIR --ncbi-tax-dump {input.taxdump} \
 --tax-mapping-file {input.taxidmap} --threads {resources.cpus_per_task} >> {log}
-'''
-
+"""

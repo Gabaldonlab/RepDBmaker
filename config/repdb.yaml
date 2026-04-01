@@ -21,6 +21,14 @@ dbs:
           level: class
           identity: 0.9
           coverage: 0.9
+      # diatoms: 
+      #   ids: resources/diatomeae.ids
+      #   cluster: 
+      #     level: genus
+      #     identity: 0.9
+      #     coverage: 0.9
+      #   decontaminate:
+      #     prop_euka: 0.5
       # random: 
       #   ids: resources/random_500.ids
       #   cluster: 

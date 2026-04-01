@@ -1,26 +1,35 @@
 rule db_stats:
-    input: "results/dbs/{db}/genome_table.tsv"
-    output: "results/stats/{db}_stats.tsv"
+    input:
+        "results/dbs/{db}/genome_table.tsv",
+    output:
+        "results/stats/{db}_stats.tsv",
     threads: 48
-    conda: "../envs/utils.yaml"
+    conda:
+        "../envs/utils.yaml"
     # localrule: True
     # group: "create_db"
-    shell:'''
+    shell:
+        """
 cut -f1 {input} | seqkit stats -j {threads} --infile-list - -T -b | \
 cut -f1,4- | sed 's/.faa.gz//' > {output}
-'''
+"""
+
 
 rule clustdb_stats:
-    input: repr_all_clades
-    output: "results/stats/{db}_clustered_stats.tsv"
+    input:
+        repr_all_clades,
+    output:
+        "results/stats/{db}_clustered_stats.tsv",
     threads: 48
-    conda: "../envs/utils.yaml"
+    conda:
+        "../envs/utils.yaml"
     # group: "create_db"
     # localrule: True
-    shell:'''
+    shell:
+        """
 seqkit stats -j {threads} -T -b {input} | \
 cut -f1,4- | sed 's/_rep_seq.fasta//' > {output}
-'''
+"""
 
 
 # rule make_repdb_meta:
@@ -40,4 +49,3 @@ cut -f1,4- | sed 's/_rep_seq.fasta//' > {output}
 #     conda: "../envs/R.yaml"
 #     localrule: True
 #     script: "../scripts/analyze_stats.R"
-

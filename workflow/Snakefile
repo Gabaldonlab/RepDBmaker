@@ -1,7 +1,10 @@
 import random
+
 random.seed(42)
 
+
 configfile: "config/repdb.yaml"
+
 
 valid_db_types = {"diamond", "blastp", "mmseqs"}
 if "dbs" in config and "type" in config["dbs"]:
@@ -12,28 +15,36 @@ if "dbs" in config and "type" in config["dbs"]:
             f"Allowed: {sorted(valid_db_types)}."
         )
 
+
 # Import modules/rules
-include: 'rules/download.smk'
-include: 'rules/gtdb.smk'
-include: 'rules/taxonomy.smk'
-include: 'rules/common.smk'
-include: 'rules/db.smk'
-include: 'rules/cluster.smk'
-include: 'rules/stats.smk'
-include: 'rules/decontaminate.smk'
+include: "rules/download.smk"
+include: "rules/gtdb.smk"
+include: "rules/taxonomy.smk"
+include: "rules/common.smk"
+include: "rules/db.smk"
+include: "rules/cluster.smk"
+include: "rules/stats.smk"
+include: "rules/decontaminate.smk"
+
 
 onstart:
     print("\n--- Workflow started ---\n")
+
+
 onsuccess:
     print("\n--- Workflow finished! ---\n")
+
+
 onerror:
     print("\n--- An error occurred! ---\n")
+
 
 # include: 'rules/p10k.smk'
 # include: 'rules/custom.smk'
 # include: 'rules/eukprot.smk'
 # include: 'rules/uniprot.smk'
 # include: 'rules/virus.smk'
+
 
 def get_database_targets():
     """Generate database targets based on config."""
@@ -56,24 +67,44 @@ def get_clustered_database_targets():
     """Return databases that need cluster-specific .fa input"""
     return [db for db in get_database_targets() if _is_db_clustered(db)]
 
+
 def get_decontaminated_database_targets():
     """Return databases that need decontamination outputs"""
     return [db for db in get_database_targets() if _is_db_decon(db)]
+
 
 rule all:
     input:
         # Downloadable files
         "results/meta/check_resources.txt",
         # Database files
-        expand("results/dbs/{db}/{db}_{dbtype}", db=get_database_targets(), dbtype=config["dbs"]["type"]),
+        expand(
+            "results/dbs/{db}/{db}_{dbtype}",
+            db=get_database_targets(),
+            dbtype=config["dbs"]["type"],
+        ),
         # Clustering files
-        expand("results/dbs/{db}/cluster/cluster_params.yaml", db=get_clustered_database_targets()),
+        expand(
+            "results/dbs/{db}/cluster/cluster_params.yaml",
+            db=get_clustered_database_targets(),
+        ),
         # Decontamination files
-        expand("results/dbs/{db}/decontaminate/decontaminate_params.yaml", db=get_decontaminated_database_targets()),
-        expand("results/dbs/{db}/decontaminate/contaminants.txt", db=get_decontaminated_database_targets()),
-        expand("results/dbs/{db}/decontaminate/pair_counts.tsv", db=get_decontaminated_database_targets()),
+        expand(
+            "results/dbs/{db}/decontaminate/decontaminate_params.yaml",
+            db=get_decontaminated_database_targets(),
+        ),
+        expand(
+            "results/dbs/{db}/decontaminate/contaminants.txt",
+            db=get_decontaminated_database_targets(),
+        ),
+        expand(
+            "results/dbs/{db}/decontaminate/pair_counts.tsv",
+            db=get_decontaminated_database_targets(),
+        ),
         # Stats files
         expand("results/stats/{db}_stats.tsv", db=get_database_targets()),
-        expand("results/stats/{db}_clustered_stats.tsv", db=get_clustered_database_targets()),
+        expand(
+            "results/stats/{db}_clustered_stats.tsv",
+            db=get_clustered_database_targets(),
+        ),
         # get_optional_targets()
-

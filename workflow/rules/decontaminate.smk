@@ -11,6 +11,7 @@ def _get_decon_settings(db):
         decontaminate_conf = {}
     return decontaminate_conf
 
+
 def _is_db_decon(db_name):
     dbs_config = config.get("dbs", {}).get("build", {})
     if db_name == "repdb":
@@ -31,15 +32,16 @@ def _is_db_decon(db_name):
 
 rule write_decontamination_params:
     input:
-        tax=rules.create_full_taxdump.output.all_taxa
+        tax=rules.create_full_taxdump.output.all_taxa,
     output:
-        params="results/dbs/{db}/decontaminate/decontaminate_params.yaml"
+        params="results/dbs/{db}/decontaminate/decontaminate_params.yaml",
     localrule: True
     run:
         decon_conf = _get_decon_settings(wildcards.db)
         if not isinstance(decon_conf, dict):
             decon_conf = {}
         import os
+
         os.makedirs(os.path.dirname(output.params), exist_ok=True)
         with open(output.params, "w") as f:
             f.write("decontaminate:\n")
@@ -50,32 +52,46 @@ rule write_decontamination_params:
 rule concat_fasta_decont:
     input:
         repdb="results/dbs/repdb/repdb.fa.gz",
-        other="results/dbs/{db}/{db}.fa.gz"
-    output: temp("results/{db}/decontaminate/{db}_decon.fa.gz")
+        other="results/dbs/{db}/{db}.fa.gz",
+    output:
+        temp("results/{db}/decontaminate/{db}_decon.fa.gz"),
     localrule: True
-    conda: "../envs/utils.yaml"
-    shell:'''
+    conda:
+        "../envs/utils.yaml"
+    shell:
+        """
 if [ "{wildcards.db}" == "repdb" ]; then
     ln -s {input.repdb} {output}
 else
     cat {input.repdb} {input.other} > {output}
 fi
-'''
+"""
 
 
 rule cluster_decontaminate:
-    input: rules.concat_fasta_decont.output
-    output: "results/dbs/{db}/decontaminate/{db}_cluster.tsv"
+    input:
+        rules.concat_fasta_decont.output,
+    output:
+        "results/dbs/{db}/decontaminate/{db}_cluster.tsv",
     params:
-        identity=lambda wildcards: _get_decon_settings(wildcards.db).get("identity", 0.9),
-        coverage=lambda wildcards: _get_decon_settings(wildcards.db).get("coverage", 0.5),
-        cov_mode=lambda wildcards: _get_decon_settings(wildcards.db).get("cov_mode", 3)
+        identity=lambda wildcards: _get_decon_settings(wildcards.db).get(
+            "identity", 0.9
+        ),
+        coverage=lambda wildcards: _get_decon_settings(wildcards.db).get(
+            "coverage", 0.5
+        ),
+        cov_mode=lambda wildcards: _get_decon_settings(wildcards.db).get("cov_mode", 3),
     threads: 112
-    conda: "../envs/homology.yaml"
-    resources: slurm_extra="'--qos=gp_bscls' '--constraint=highmem'"
-    benchmark: "results/benchmarks/decontamination/{db}_cluster.txt"
-    group: "decontaminate_clust"
-    shell:'''
+    conda:
+        "../envs/homology.yaml"
+    resources:
+        slurm_extra="'--qos=gp_bscls' '--constraint=highmem'",
+    benchmark:
+        "results/benchmarks/decontamination/{db}_cluster.txt"
+    group:
+        "decontaminate_clust"
+    shell:
+        """
 clusterdir=$(dirname {output})
 mkdir -p $clusterdir
 
@@ -84,18 +100,22 @@ mmseqs easy-linclust {input} $clusterdir/{wildcards.db} $TMPDIR/{wildcards.db}te
 -e 0.001 --threads {threads}
 
 rm $clusterdir/{wildcards.db}_all_seqs.fasta $clusterdir/{wildcards.db}_rep_seq.fasta
-'''
+"""
+
 
 rule remove_singletons:
-    input: 
-        clusters=rules.cluster_decontaminate.output
+    input:
+        clusters=rules.cluster_decontaminate.output,
     output:
         dups=temp("results/dbs/{db}/decontaminate/dups.ids"),
-        clusters="results/dbs/{db}/decontaminate/non_singletons_clusters.tsv"
+        clusters="results/dbs/{db}/decontaminate/non_singletons_clusters.tsv",
     # threads: 24
-    conda: "../envs/utils.yaml"
-    group: "decontaminate"
-    shell: '''
+    conda:
+        "../envs/utils.yaml"
+    group:
+        "decontaminate"
+    shell:
+        """
 cont_dir=$(dirname {output.dups})
 echo "getting the non singletons representative"
 cut -f1 {input.clusters} | uniq -d > {output.dups}
@@ -113,7 +133,9 @@ for file in ${{cont_dir}}/chunk_*; do
 done
 
 rm ${{cont_dir}}/chunk_*
-'''
+"""
+
+
 # extract_lines_with_duplicates() {{
 #     local chunk="$1"
 #     csvtk join -H -t -f 1 "$chunk" {output.dups} > "test/mmseqs/results/$(basename $chunk)_result.txt"
@@ -133,13 +155,16 @@ rm ${{cont_dir}}/chunk_*
 rule get_mixed_clusters:
     input:
         clusters=rules.remove_singletons.output.clusters,
-        taxdump=rules.create_full_taxdump.output.full_taxdump
+        taxdump=rules.create_full_taxdump.output.full_taxdump,
     output:
         interesting="results/dbs/{db}/decontaminate/mixed.ids",
-        mixed="results/dbs/{db}/decontaminate/mixed_cluster.tsv"
-    conda: "../envs/utils.yaml"
-    group: "decontaminate"
-    shell: '''
+        mixed="results/dbs/{db}/decontaminate/mixed_cluster.tsv",
+    conda:
+        "../envs/utils.yaml"
+    group:
+        "decontaminate"
+    shell:
+        """
 awk '{{print $0"\\t"substr($2, 1, index($2, "_")-1)}}' {input.clusters} | \
 taxonkit reformat -I 3 --data-dir {input.taxdump} -f "{{k}}"  | csvtk uniq -H -t -f 1,4 | \
 sort -k4,4 | csvtk fold -t -H -f 1 -v 4 -s"|" | grep "|" | grep Eukaryota | cut -f1 > {output.interesting}
@@ -147,7 +172,8 @@ sort -k4,4 | csvtk fold -t -H -f 1 -v 4 -s"|" | grep "|" | grep Eukaryota | cut 
 awk 'NR==FNR {{ dup[$1]; next }} $1 in dup' {output.interesting} {input.clusters} | \
 awk '{{print $0"\\t"substr($2, 1, index($2, "_")-1)}}' | \
 taxonkit reformat -I 3 --data-dir {input.taxdump} > {output.mixed}
-'''
+"""
+
 
 # rule get_viral_clusters:
 #     input:
@@ -170,13 +196,18 @@ taxonkit reformat -I 3 --data-dir {input.taxdump} > {output.mixed}
 
 
 rule get_pairwise_combination:
-    input: rules.remove_singletons.output.clusters
-    output: "results/dbs/{db}/decontaminate/pair_counts.tsv"
+    input:
+        rules.remove_singletons.output.clusters,
+    output:
+        "results/dbs/{db}/decontaminate/pair_counts.tsv",
     localrule: True
     # group: "decontaminate"
-    shell: '''
+    conda:
+        "../envs/utils.yaml"
+    shell:
+        """
 cut -f2,4 -d'_' {input} | sed 's/_/\\t/g' | sort | uniq -c | sed -E 's/^[[:space:]]*([0-9]+)[[:space:]]+(.*)/\\1\t\\2/' > {output}
-'''
+"""
 
 
 # should you try different mmseqs parameters?
@@ -185,19 +216,25 @@ cut -f2,4 -d'_' {input} | sed 's/_/\\t/g' | sort | uniq -c | sed -E 's/^[[:space
 
 
 rule get_contaminants:
-    input: rules.get_mixed_clusters.output.mixed
-    output: "results/dbs/{db}/decontaminate/contaminants.txt"
+    input:
+        rules.get_mixed_clusters.output.mixed,
+    output:
+        "results/dbs/{db}/decontaminate/contaminants.txt",
     params:
-        prop_euka=lambda wildcards: _get_decon_settings(wildcards.db).get("prop_euka", 0.5)
+        prop_euka=lambda wildcards: _get_decon_settings(wildcards.db).get(
+            "prop_euka", 0.5
+        ),
         # size_cluster=config["size_cluster"]
-    conda: "../envs/R.yaml"
-    group: "decontaminate"
-    script: '../scripts/get_contaminants.R'
-
+    conda:
+        "../envs/R.yaml"
+    group:
+        "decontaminate"
+    script:
+        "../scripts/get_contaminants.R"
 
 
 # rule diamond_noneuk:
-#     input: 
+#     input:
 #         query="results/proteomes/cus/CUS00001.faa.gz",
 #         db=rules.make_diamonddb.output,
 #         taxdump=rules.create_repdb_taxdump.output.repdb_taxdump
@@ -210,6 +247,5 @@ rule get_contaminants:
 # '''
 # euka_taxid=$(echo Eukaryota | taxonkit name2taxid --data-dir {input.taxdump} | cut -f2)
 # --taxon-exclude $euka_taxid
-
 # the idea is to blast non-uniprot proteomes to the first iteration of repdb. If a sequence has a very \
 # close homologs to non euka it could be excluded
