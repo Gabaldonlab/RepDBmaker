@@ -1,6 +1,6 @@
 # Database configuration
 dbs:
-  gtdb_version: "latest"  # use release220 or release 226 etc to use older versions
+  gtdb_version: "latest"  # use release220 or release226 etc to use older versions
   type: ["diamond", "mmseqs", "blastp"]  # Available database types: diamond, mmseqs, blastp
   # Which databases to build
   build:
@@ -47,7 +47,7 @@ dbs:
 
 # If repdb is not specified and you specified to decontaminate your custom database, 
 # the pipeline will still produce the repdb.fa.gz
-# Right now there is no option to do that as temp because it seems complicated to manage
+# Right now there is no option to do that as temp because it seems too complicated to manage :=)
 
 files: 
   clades_to_keep: "resources/clades_tokeep.txt"

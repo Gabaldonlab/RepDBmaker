@@ -140,8 +140,22 @@ rule get_uniprot_genomes:
     localrule: True
     shell:'''
 taxid=$(grep {wildcards.genome} {input.up} | cut -f2)
-wget -nc "https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/Eukaryota/{wildcards.genome}/{wildcards.genome}_$taxid.fasta.gz" \
--O {output}
+FTP_URL="https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/Eukaryota/{wildcards.genome}/{wildcards.genome}_$taxid.fasta.gz"
+REST_URL="https://rest.uniprot.org/uniparc/proteome/{wildcards.genome}/stream?compressed=true&format=fasta"
+
+echo "Attempting FTP download..."
+if wget -nc "$FTP_URL" -O "{output}"; then
+    echo "Successfully downloaded from FTP."
+else
+    echo "FTP download failed or file not found. Resorting to REST API..."
+    rm "{output}"
+    if wget -nc "$REST_URL" -O "{output}"; then
+        echo "Successfully downloaded from REST API."
+    else
+        echo "Error: Both FTP and REST API attempts failed for {wildcards.genome}."
+        exit 1
+    fi
+fi
 '''
 
 rule extract_virus:

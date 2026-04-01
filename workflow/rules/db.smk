@@ -12,10 +12,11 @@ def _is_db_clustered(db_name):
 def get_db_fa(wildcards):
     if _is_db_clustered(wildcards.db):
         return f"results/dbs/{wildcards.db}/{wildcards.db}_clustered.fa.gz"
-    return f"results/dbs/{wildcards.db}/{wildcards.db}.fa.gz"
+    return f"results/dbs/{wildcards.db}/{wildcards.db}_raw.fa.gz"
 
 mmseqs_ext = [".dbtype", "_h", "_h.dbtype", "_h.index", 
               ".lookup", ".index", "_mapping", ".source", "_taxonomy"]
+
 
 rule make_db_fasta:
     input:
@@ -23,7 +24,7 @@ rule make_db_fasta:
         taxdump=rules.create_full_taxdump.output.full_taxdump,
         stats="results/stats/{db}_stats.tsv" # if this failed it means some proteomes had problems while downloading!
     output:
-        fa="results/dbs/{db}/{db}.fa.gz",
+        fa=temp("results/dbs/{db}/{db}_raw.fa.gz"),
         idmap="results/dbs/{db}/{db}_accession_map.txt"
     # log: "results/log/dbs/repdb/parse.log"
     threads: 112
@@ -68,9 +69,16 @@ mmseqs createtaxdb {output.db} $TMPDIR --ncbi-tax-dump {input.taxdump} \
 --tax-mapping-file {input.taxidmap} --threads {resources.cpus_per_task} >> {log}
 '''
 
+# this is done in order to set the unclustered fasta as tmp 
+rule unify_fasta:
+    input: get_db_fa
+    output: "results/dbs/{db}/{db}.fa.gz"
+    localrule: True
+    shell: "cp {input} {output}"
+
 rule make_blastdb:
     input: 
-        fa=get_db_fa,
+        fa=rules.unify_fasta.output,
         taxidmap=rules.make_db_map.output.noheadermap
     output: "results/dbs/{db}/{db}_blastp"
     log: "results/log/dbs/{db}/make_blastp.log"
@@ -85,7 +93,7 @@ touch {output}
 
 rule make_diamonddb:
     input: 
-        fa=get_db_fa,
+        fa=rules.unify_fasta.output,
         taxidmap="results/dbs/{db}/{db}.map",
         taxdump=rules.create_full_taxdump.output.full_taxdump
     output: "results/dbs/{db}/{db}_diamond"
@@ -103,7 +111,7 @@ touch {output}
 
 rule make_mmseqsdb:
     input: 
-        fa=get_db_fa,
+        fa=rules.unify_fasta.output,
         taxidmap="results/dbs/{db}/{db}_nohead.map",
         taxdump=rules.create_full_taxdump.output.full_taxdump
     output: "results/dbs/{db}/{db}_mmseqs"

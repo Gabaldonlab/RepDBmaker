@@ -223,6 +223,8 @@ The pipeline will create `results/dbs/<custom_db>/` with the expected outputs.
 
 ## TODO
 
+- UniProt: include also non kb proteomes?
+- JGI?
 - unit tests
 - proper README
 - docker container

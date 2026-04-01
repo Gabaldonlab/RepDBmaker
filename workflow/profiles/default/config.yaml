@@ -24,7 +24,7 @@ group-components:
   - mmseqs_bench=4
 
 set-resources:
-  make_repdb_fasta:
+  make_db_fasta:
     runtime: 360
   merge_clustered:
     runtime: 800
@@ -36,7 +36,7 @@ set-resources:
     cpus_per_task: 4
   cluster_class:
     cpus_per_task: 4
-  cluster_repdb:
+  cluster_decontaminate:
     cpus_per_task: 112
     runtime: 400
   diamond_random_seqs:
