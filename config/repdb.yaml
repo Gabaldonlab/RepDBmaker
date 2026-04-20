@@ -1,7 +1,7 @@
 # Database configuration
 dbs:
   gtdb_version: "latest"  # use release220 or release226 etc to use older versions
-  type: ["diamond", "mmseqs", "blastp"]  # Available database types: diamond, mmseqs, blastp
+  type: ["diamond", "mmseqs"]  # Available database types: diamond, mmseqs, blastp
   # Which databases to build
   build:
     repdb: 
@@ -15,7 +15,7 @@ dbs:
     # Custom databases: uncomment and add your database entries
     # Example:
     custom:
-      clustered_repdb: 
+      clusteredrepdb: 
         ids: resources/repdb.ids #/gpfs/projects/bsc40/current/gmutti/projects/repdb_dev/results/meta/repdb.ids
         cluster: 
           level: class

@@ -28,10 +28,6 @@ set-resources:
     runtime: 360
   merge_clustered:
     runtime: 800
-  make_diamonddb:
-    cpus_per_task: 112
-  make_mmseqsdb:
-    cpus_per_task: 112
   get_class:
     cpus_per_task: 4
   cluster_class:
@@ -39,6 +35,16 @@ set-resources:
   cluster_decontaminate:
     cpus_per_task: 112
     runtime: 400
+  make_mmseqsdb_clustering:
+    cpus_per_task: 112
+  make_mmseqsdb:
+    cpus_per_task: 112
+  make_diamonddb:
+    cpus_per_task: 112
+  make_blastdb:
+    cpus_per_task: 112
+    runtime: 600
+# benchmark jobs
   diamond_random_seqs:
     cpus_per_task: 28
     runtime: 600

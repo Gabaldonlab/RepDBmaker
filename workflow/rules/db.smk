@@ -12,7 +12,10 @@ def _is_db_clustered(db_name):
 def get_db_fa(wildcards):
     if _is_db_clustered(wildcards.db):
         return f"results/dbs/{wildcards.db}/{wildcards.db}_clustered.fa.gz"
-    return f"results/dbs/{wildcards.db}/{wildcards.db}_raw.fa.gz"
+    # unfortunately this + unify_fasta does not work as expected for
+    # some mysterious reason...
+    # return f"results/dbs/{wildcards.db}/{wildcards.db}_raw.fa.gz" 
+    return f"results/dbs/{wildcards.db}/{wildcards.db}.fa.gz" 
 
 
 mmseqs_ext = [
@@ -34,7 +37,8 @@ rule make_db_fasta:
         taxdump=rules.create_full_taxdump.output.full_taxdump,
         stats="results/stats/{db}_stats.tsv",  # if this failed it means some proteomes had problems while downloading!
     output:
-        fa=temp("results/dbs/{db}/{db}_raw.fa.gz"),
+        # fa=temp("results/dbs/{db}/{db}_raw.fa.gz"),
+        fa="results/dbs/{db}/{db}.fa.gz",
         idmap="results/dbs/{db}/{db}_accession_map.txt",
     # log: "results/log/dbs/repdb/parse.log"
     threads: 112
@@ -94,21 +98,21 @@ mmseqs createtaxdb {output.db} $TMPDIR --ncbi-tax-dump {input.taxdump} \
 
 
 # this is done in order to set the unclustered fasta as tmp
-rule unify_fasta:
-    input:
-        get_db_fa,
-    output:
-        "results/dbs/{db}/{db}.fa.gz",
-    localrule: True
-    conda:
-        "../envs/utils.yaml"
-    shell:
-        "cp {input} {output}"
+# rule unify_fasta:
+#     input:
+#         get_db_fa,
+#     output:
+#         "results/dbs/{db}/{db}.fa.gz",
+#     localrule: True
+#     conda:
+#         "../envs/utils.yaml"
+#     shell:
+#         "cp {input} {output}"
 
 
 rule make_blastdb:
     input:
-        fa=rules.unify_fasta.output,
+        fa=get_db_fa,
         taxidmap=rules.make_db_map.output.noheadermap,
     output:
         "results/dbs/{db}/{db}_blastp",
@@ -129,7 +133,7 @@ touch {output}
 
 rule make_diamonddb:
     input:
-        fa=rules.unify_fasta.output,
+        fa=get_db_fa,
         taxidmap="results/dbs/{db}/{db}.map",
         taxdump=rules.create_full_taxdump.output.full_taxdump,
     output:
@@ -155,7 +159,7 @@ touch {output}
 
 rule make_mmseqsdb:
     input:
-        fa=rules.unify_fasta.output,
+        fa=get_db_fa,
         taxidmap="results/dbs/{db}/{db}_nohead.map",
         taxdump=rules.create_full_taxdump.output.full_taxdump,
     output:

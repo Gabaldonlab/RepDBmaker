@@ -8,3 +8,8 @@ dependencies:
   - seqkit
   - taxonkit
   - jq
+  - wget
+  - tar
+  - unzip
+  - awk
+  - gzip

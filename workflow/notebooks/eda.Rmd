@@ -181,6 +181,13 @@ repdb_df %>%
             n_sp = n_distinct(s)) %>% 
   mutate(freq_seqs = num_seqs/sum(num_seqs)*100,
          freq_sps = n_sp/sum(n_sp)*100)
+
+nr_classes %>% 
+  filter(k=="Viruses") %>% 
+  mutate(iscaudo = case_when(c=="Caudoviricetes" ~ TRUE, .default = FALSE)) %>% 
+  group_by(iscaudo) %>% 
+  summarise(num_seqs = sum(n)) %>% 
+  mutate(freq_seqs = num_seqs/sum(num_seqs)*100)
 ```
 
 

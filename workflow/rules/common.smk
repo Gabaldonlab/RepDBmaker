@@ -276,7 +276,7 @@ rule custom_genome_table:
         gtdb_custom,
         viruses_custom,
     output:
-        "results/dbs/{db}/genome_table.tsv",
+        "results/dbs/{db}/genome_table.tsv"
     localrule: True
     conda:
         "../envs/python.yaml"
