@@ -7,29 +7,7 @@
 
 This repository contains a Snakemake-based workflow to build taxonomically annotated protein sequence databases from multiple public sources and custom genome collections.
 
-## Table of contents
-
-- [RepDBmaker Pipeline](#repdbmaker-pipeline)
-  - [Table of contents](#table-of-contents)
-  - [What this pipeline does](#what-this-pipeline-does)
-  - [Repository layout](#repository-layout)
-  - [Requirements](#requirements)
-  - [Quick start](#quick-start)
-  - [Configuration](#configuration)
-  - [Pipeline components](#pipeline-components)
-    - [Downloads and metadata](#downloads-and-metadata)
-    - [Taxonomy assembly](#taxonomy-assembly)
-    - [Clustering](#clustering)
-    - [Decontamination](#decontamination)
-  - [Outputs](#outputs)
-  - [Benchmarking](#benchmarking)
-  - [Custom databases](#custom-databases)
-  - [Useful files](#useful-files)
-  - [Authors](#authors)
-  - [References](#references)
-  - [TODO](#todo)
-
-## What this pipeline does
+## The pipeline
 
 - Downloads and assembles taxonomic resources for:
   - prokaryotes from [GTDB](https://gtdb.ecogenomic.org/)
@@ -40,37 +18,44 @@ This repository contains a Snakemake-based workflow to build taxonomically annot
 - Optionally clusters database sequences by taxonomic rank
 - Optionally decontaminates selected databases using sequence cluster analysis
 
-## Repository layout
+## Installation
 
-- `config/repdb.yaml` - main pipeline configuration
-- `workflow/Snakefile` - main Snakemake entry point
-- `workflow/rules/` - rule files for download, taxonomy, database building, clustering, decontamination, and stats
-- `workflow/envs/` - Conda environment definitions used by the workflow
-- `resources/` - static input files and genome lists used by the pipeline
+### Reuirements
 
-## Requirements
-
-- Snakemake
+- [Snakemake](https://snakemake.readthedocs.io/en/stable/getting_started/installation.html)
 - Conda or Miniconda
 - Internet access for downloading external resources
 - Disk space for large genomic and database collections
 
-The workflow uses the following Conda environments:
+The workflow will then automatically download the following Conda environments (if `--sdm conda` is used):
 
 - `workflow/envs/python.yaml` — Python, pandas, matplotlib, polars
 - `workflow/envs/homology.yaml` — diamond, mmseqs2, blast
 - `workflow/envs/utils.yaml` — taxonkit, csvtk, ncbi-datasets-cli, jq, seqkit
 - `workflow/envs/R.yaml` — R and visualization/taxonomy packages
 
-## Quick start
-
-1. Load Conda/Snakemake and activate your environment:
+You can run this command to create all the necessary environments without running the pipeline:
 
 ```bash
-conda activate snakemake
+snakemake --conda-create-envs-only 
 ```
 
-2. In case you are interested in the available proteomes you can just un this:
+### Docker image
+
+Alternatively, a Docker image is available at [Docker Hub](https://hub.docker.com/repository/docker/gmuttiirb/repdbmaker/general).
+
+In this case the only dependency will be installing [Docker](https://docs.docker.com/engine/install/).
+
+The pipeline can be used with this command: 
+
+```bash
+docker run --rm -v $(pwd):/app/data gmuttiirb/repdbmaker:v1.0 snakemake --cores 2 --directory /app/data -n
+```
+
+## Getting started
+
+
+If first, you are interested in the available proteomes you can just run this:
 
 ```bash
 snakemake -j 1 --until available_proteomes
@@ -78,7 +63,7 @@ snakemake -j 1 --until available_proteomes
 
 It will produce the `results/meta/available_proteomes.tsv` that can be easily parsed to further select whatever susbet of proteomes you may be interested in.
 
-3. Alternatively you can run the full workflow directly:
+Alternatively you can run the full workflow directly:
 
 ```bash
 snakemake -j 14
@@ -86,15 +71,14 @@ snakemake -j 14
 
 Sometimes things can go wrong while downloading a proteome. That is why there is a step (rule `db_stats`) that will fail if any gzipped fasta is malformed and will block the creation of the database fasta. 
 
-In this case you can run for example:
+If there are any issues, you can run for example:
 
 ```bash
 cut -f1 results/dbs/repdb/genome_table.tsv | xargs -I {} sh -c 'gzip -t "{}" || echo "Failed: {}"'
 ```
 
-Then delete the problematic ones and re-run the pipeline. If the problem persitsts, there may be other sort of problems
-(this specific proteome files are broken or the current downloading script fails), I reccomend to exclude them and find the most suitable alternative. 
-
+Then delete the problematic ones and re-run the pipeline. If the problem persists, there may be other sort of problems
+(the files may be broken or the current downloading script fails), I reccomend to exclude them and find the most suitable alternative. 
 
 ## Configuration
 
@@ -102,15 +86,47 @@ Edit `config/repdb.yaml` to select which databases and formats to build. You can
 
 `snakemake --configfile path/to/custom.yaml`
 
-Key configuration sections:
+The default configuration file looks like this:
 
-- `dbs.type` — allowed values: `diamond`, `mmseqs`, `blastp`
-- `dbs.build.repdb` — enable RepDB construction
-- `dbs.build.custom` — define custom databases with genome IDs and optional clustering/decontamination
-- `dbs.gtdb_version` — GTDB release version, `default` is the latest.
-- `files.clades_to_keep` — eukaryotic lineages to retain
-- `files.genomes_to_exclude` — genomes excluded from RepDB
-- `files.new_genomes` — custom genome metadata for `results/proteomes/cus/`
+```yaml
+# Database configuration
+dbs:
+  gtdb_version: "latest"  # use release220 or release226 etc to use older versions
+  type: ["diamond", "mmseqs"]  # Available database types: diamond, mmseqs, blastp
+  # Which databases to build
+  build:
+    repdb: 
+      decontamination:
+        # these parameters were optimized through a benchmark with ContScout 
+        identity: 0.9
+        coverage: 0.5
+        cov_mode: 3
+        prop_euka: 0.5
+    # Custom databases: uncomment and add your database entries
+    # Example:
+    custom:
+      clusteredrepdb: 
+        ids: resources/repdb.ids
+        cluster: 
+          level: class
+          identity: 0.9
+          coverage: 0.9
+
+files: 
+  clades_to_keep: "resources/clades_tokeep.txt"
+  genomes_to_exclude: "resources/exclude.txt"
+  new_genomes: "resources/custom_genomes_repdb.csv"
+```
+
+It will allow the creation of RepDB and its clustered version.
+
+### Custom databases
+
+To add any custom database:
+
+1. Define an entry under `dbs.build.custom` in the `config` file
+2. Provide an `ids` file containing the genome identifiers or metadata
+3. Optionally add `cluster` and `decontaminate` sections for clustering and contamination filtering
 
 Example custom database entry:
 
@@ -131,39 +147,7 @@ dbs:
         prop_euka: 0.5  # % of Eukas in contaminant clusters
 ```
 
-## Pipeline components
-
-### Downloads and metadata
-
-The workflow retrieves:
-
-- NCBI taxdump
-- GTDB taxonomy and representative genomes
-- NCBI RefSeq viral genomes
-- UniProt reference proteome metadata
-- EukProt metadata and proteomes
-- P10K metadata and lineage data
-- UniEuk taxonomy resource
-
-### Taxonomy assembly
-
-- Builds combined taxonomic annotations for viruses, GTDB, and selected eukaryotes
-- Creates RepDB-specific taxonomy using filtered eukaryotes, all viruses, and all GTDB genomes
-- Generates a full taxdump used by database builders and clustering steps
-
-
-### Clustering
-
-- Optionally clusters database sequences by taxonomic clade
-- Uses taxonomic rank values such as `class`, `order`, `family`, etc.
-- Generates per-clade FASTA and cluster output, then merges into a clustered database file
-
-### Decontamination
-
-- Concatenates RepDB and custom database FASTA files for decontamination when configured
-- Runs MMseqs2 clustering to identify sequence clusters
-- Extracts non-singleton clusters and mixed clusters with eukaryotic content
-- Produces `contaminants.txt`, `pair_counts.tsv`, and other diagnostic outputs
+The pipeline will create `results/dbs/<custom_db>/` with the expected outputs.
 
 ## Outputs
 
@@ -188,27 +172,7 @@ Primary output directories and files:
 
 ## Benchmarking
 
-A separate benchmark workflow is available at `workflow/benchmark.smk` and uses `config/benchmark.yaml` to compare RepDB against reference databases such as NR and clustered NR.
-
-## Custom databases
-
-To add a custom database:
-
-1. Define an entry under `dbs.build.custom` in `config/repdb.yaml`
-2. Provide an `ids` file containing the genome identifiers or metadata
-3. Optionally add `cluster` and `decontaminate` sections for clustering and contamination filtering
-
-The pipeline will create `results/dbs/<custom_db>/` with the expected outputs.
-
-
-## Useful files
-
-- `workflow/Snakefile` — main workflow logic
-- `workflow/rules/` — modular rule definitions
-- `workflow/envs/` — Conda environments used by rules
-- `config/repdb.yaml` — pipeline configuration
-- `resources/` — genome lists, excluded genomes, and clade filters
-
+A separate benchmark workflow is available at `workflow/benchmark.smk` and uses `config/benchmark.yaml` to compare RepDB against reference databases such as NR and clustered NR. A R Markdown notebook showing our results is available in `workflow/notebooks/comparison.Rmd`.
 
 ## Authors
 
@@ -217,7 +181,7 @@ The pipeline will create `results/dbs/<custom_db>/` with the expected outputs.
   - ORCID profile
   - home page
 
-## References
+## Citation
 
 > ADD
 
@@ -227,8 +191,6 @@ The pipeline will create `results/dbs/<custom_db>/` with the expected outputs.
 - JGI?
 - unit tests
 - proper README
-- docker container
-- snakevision
 - images folder
 - profiles
 - schemas
