@@ -84,8 +84,6 @@ rule cluster_decontaminate:
     threads: 112
     conda:
         "../envs/homology.yaml"
-    resources:
-        slurm_extra="'--qos=gp_bscls' '--constraint=highmem'",
     benchmark:
         "results/benchmarks/decontamination/{db}_cluster.txt"
     group:
@@ -224,6 +222,12 @@ rule get_contaminants:
         prop_euka=lambda wildcards: _get_decon_settings(wildcards.db).get(
             "prop_euka", 0.5
         ),
+        # flag_single_euk: set to false in the config to disable the always-on
+        # "single eukaryote in cluster" filter path (keeps legitimate
+        # bacterial-origin genes such as HGT / plastid / chromatophore proteins)
+        # flag_single_euk=lambda wildcards: _get_decon_settings(wildcards.db).get(
+        #     "flag_single_euk", True
+        # ),
         # size_cluster=config["size_cluster"]
     conda:
         "../envs/R.yaml"

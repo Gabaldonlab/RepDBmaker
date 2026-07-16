@@ -1,0 +1,49 @@
+# LSF profile — uses the dedicated Snakemake LSF executor plugin.
+#
+# Install:  pip install snakemake-executor-plugin-lsf
+# Run:      snakemake --workflow-profile workflow/profiles/lsf -j <max_parallel_jobs>
+#
+# Each rule's `threads:` maps to the LSF core request automatically, so the
+# heavy rules request up to 112 cores. Lower them in the set-threads block below
+# if your hosts are smaller.
+
+executor: lsf
+sdm: conda
+
+default-resources:
+  lsf_queue: "CHANGE_ME"        # bsub -q <queue>
+  lsf_project: "CHANGE_ME"      # bsub -P <project>  (delete this line if your site has no projects)
+  runtime: 120                  # minutes (walltime; `runtime` is the LSF plugin's synonym for walltime)
+  mem_mb: 4000                  # memory per job
+  # lsf_extra: "-R 'rusage[mem=4000]'"   # any extra bsub flags your site needs
+
+local-cores: 1
+keep-going: true
+rerun-incomplete: true
+printshellcmds: true
+rerun-triggers: [code, input, mtime, params]
+
+# Share conda envs from a writable location instead of .snakemake/conda:
+# conda-prefix: "/path/to/writable/conda/envs"
+
+# Uncomment/adjust if your hosts are smaller than the heavy rules' defaults (~112 cores).
+# set-threads:
+#   cluster_decontaminate: 32
+#   make_mmseqsdb_clustering: 32
+#   make_mmseqsdb: 32
+#   make_diamonddb: 32
+#   make_blastdb: 16
+
+set-resources:
+  make_db_fasta:
+    runtime: 360
+  merge_clustered:
+    runtime: 800
+  cluster_decontaminate:
+    runtime: 400
+  make_blastdb:
+    runtime: 600
+  diamond_random_seqs:
+    runtime: 600
+  mmseqstax_random_seqs:
+    runtime: 360

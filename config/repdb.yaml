@@ -1,26 +1,35 @@
 # Database configuration
 dbs:
-  gtdb_version: "latest"  # use release220 or release226 etc to use older versions
+  gtdb_version: "release226"  # use latest to use most recent version
+  unieuk_version: "0.0.1-pre_release"
   type: ["diamond", "mmseqs"]  # Available database types: diamond, mmseqs, blastp
   # Which databases to build
   build:
-    repdb: 
+    repdb:
+      # Reproduce mode: to rebuild the *exact* composition of a previous run
+      # (e.g. the published RepDB v1.0) regardless of how the online sources
+      # have drifted, point `manifest` at a frozen repdb_taxonomy.tsv
+      # (ID + the 7 rank columns k,p,c,f,o,g,s). When set, the selection and
+      # taxonomy-harmonization steps are skipped and only the listed IDs are
+      # fetched. Freeze one from a full run with:
+      #   cp results/taxonomies/repdb_taxonomy.tsv resources/repdb_v1.0.manifest.tsv
+      manifest: resources/repdb_v1.0.manifest.tsv
       decontamination:
-        # these parameters were optimized through a benchmark with ContScout 
+        # these parameters were optimized through a benchmark with ContScout
         identity: 0.9
         coverage: 0.5
         cov_mode: 3
         prop_euka: 0.5
         # size_cluster: 10
-    # Custom databases: uncomment and add your database entries
-    # Example:
-    custom:
-      clusteredrepdb: 
-        ids: resources/repdb.ids #/gpfs/projects/bsc40/current/gmutti/projects/repdb_dev/results/meta/repdb.ids
-        cluster: 
-          level: class
-          identity: 0.9
-          coverage: 0.9
+    # # Custom databases: uncomment and add your database entries
+    # # Example:
+    # custom:
+    #   clusteredrepdb: 
+    #     ids: resources/repdb.ids #/gpfs/projects/bsc40/current/gmutti/projects/repdb_dev/results/meta/repdb.ids
+    #     cluster: 
+    #       level: class
+    #       identity: 0.9
+    #       coverage: 0.9
       # diatoms: 
       #   ids: resources/diatomeae.ids
       #   cluster: 
@@ -29,12 +38,12 @@ dbs:
       #     coverage: 0.9
       #   decontaminate:
       #     prop_euka: 0.5
-      # random: 
-      #   ids: resources/random_500.ids
-      #   cluster: 
-      #     level: phylum
-      #     identity: 0.4
-      #     coverage: 0.3
+      random: 
+        ids: resources/random_500.ids
+        cluster: 
+          level: phylum
+          identity: 0.4
+          coverage: 0.3
       # nctv: 
       #   ids: resources/nctv.ids
       #   cluster: 

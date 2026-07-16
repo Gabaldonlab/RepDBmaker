@@ -1,0 +1,55 @@
+# Generic SLURM profile — TEMPLATE.
+#
+# 1. Edit the CHANGE_ME values below to match your cluster.
+# 2. Install the SLURM executor plugin:
+#        pip install snakemake-executor-plugin-slurm
+# 3. Run with:
+#        snakemake --workflow-profile workflow/profiles/slurm -j <max_parallel_jobs>
+#
+# Per-rule thread counts come from each rule's `threads:` directive and drive
+# --cpus-per-task. If your nodes have fewer cores than the heavy rules request
+# (up to 112), lower them in the set-threads block below.
+
+executor: slurm
+sdm: conda
+
+default-resources:
+  slurm_partition: "CHANGE_ME"     # partition / queue name
+  slurm_account: "CHANGE_ME"       # your account (delete this line if your cluster doesn't require one)
+  # slurm_extra: "'--qos=CHANGE_ME'"   # any extra sbatch flags, e.g. a QOS or a node constraint
+  mem_mb: 4000
+  runtime: 120                     # minutes
+
+local-cores: 1
+keep-going: true
+rerun-incomplete: true
+printshellcmds: true
+
+# Conda envs are created under .snakemake/conda by default. On many clusters the
+# submit and compute nodes share a filesystem — point this at a writable shared
+# path so envs are built once and reused:
+# conda-prefix: "/path/to/writable/conda/envs"
+
+# Heavy rules default to high thread counts (see each rule's `threads:`).
+# Uncomment and lower these if your nodes are smaller than ~112 cores.
+# set-threads:
+#   cluster_decontaminate: 32
+#   make_mmseqsdb_clustering: 32
+#   make_mmseqsdb: 32
+#   make_diamonddb: 32
+#   make_blastdb: 16
+
+# Longer walltimes for the heavier rules (minutes). Tune for your cluster.
+set-resources:
+  make_db_fasta:
+    runtime: 360
+  merge_clustered:
+    runtime: 800
+  cluster_decontaminate:
+    runtime: 400
+  make_blastdb:
+    runtime: 600
+  diamond_random_seqs:
+    runtime: 600
+  mmseqstax_random_seqs:
+    runtime: 360

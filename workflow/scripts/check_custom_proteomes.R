@@ -1,0 +1,299 @@
+#!/usr/bin/env Rscript
+
+# Validate a RepDBmaker custom-proteome table before running the pipeline.
+#
+# Custom proteomes are added through the tab-separated table pointed to by
+# `files.new_genomes` in the config (e.g. resources/custom_genomes_repdb.csv).
+# The pipeline makes several *implicit* assumptions about that table; when they
+# are violated the offending rows are not rejected but silently dropped or
+# mislabelled downstream (reviewer methodological concern #1). This script makes
+# those assumptions explicit and checks them up front.
+#
+# Required columns (tab-separated, with a header):
+#   ID        unique mnemonic, must start with 'CUS'
+#   Species   organism name (single organism per row)
+#   Data_type e.g. genome / transcriptome (informational)
+#   Fasta     path to the proteome FASTA for this entry
+#   Lineage   exactly 7 ';'-separated ranks with the prefixes
+#             d__ p__ c__ o__ f__ g__ s__ , e.g.
+#             d__Eukaryota;p__Discoba;c__Jakobida;o__Jakobida;f__Ophirinina;g__Agogonia;s__Agogonia voluta
+#
+# Checks (ERROR fails validation / non-zero exit; WARNING is reported only):
+#   ERROR   missing required column
+#   ERROR   ID does not start with 'CUS'   (else silently dropped by filter_tax.R)
+#   ERROR   duplicate ID
+#   ERROR   lineage not exactly 7 ranks    (else separate() mangles it)
+#   ERROR   lineage rank has wrong/missing prefix (d__,p__,c__,o__,f__,g__,s__)
+#   ERROR   lineage rank empty after its prefix
+#   ERROR   empty Fasta path
+#   ERROR   lineage conflicts with the reference taxonomy: a known taxon placed
+#           under a parent that unambiguously differs in the eukaryotic taxonomy
+#           (only when a --reference / snakemake reference input is given)
+#   WARNING domain (d__) is not 'Eukaryota' (custom entries flow through the eukaryote path)
+#   WARNING Species binomial does not match the s__ rank (possible mislabel / cross-organism row)
+#   WARNING lineage conflict where the reference itself is ambiguous for that taxon
+#   WARNING duplicate Fasta path
+#   WARNING Fasta path missing or empty     (only with --check-fasta)
+#
+# The conflict check needs a reference eukaryotic taxonomy built WITHOUT the
+# custom proteomes (mnemo<TAB>lineage), e.g. results/taxonomies/eukaryotes_taxonomy_ref.tsv.
+#
+# Usage:
+#   Rscript workflow/scripts/check_custom_proteomes.R resources/custom_genomes_repdb.csv
+#   Rscript workflow/scripts/check_custom_proteomes.R <file> --reference euk_ref.tsv --check-fasta
+#
+# It can also be called from Snakemake (snakemake@input[["table"]],
+# snakemake@input[["reference"]]).
+
+suppressMessages(library(tidyverse))
+
+REQUIRED_COLUMNS <- c("ID", "Species", "Data_type", "Fasta", "Lineage")
+RESERVED_PREFIXES <- c("UP", "EP", "P10")
+RANK_PREFIXES <- c("d__", "p__", "c__", "o__", "f__", "g__", "s__")
+RANK_LABELS <- c("domain", "phylum", "class", "order", "family", "genus", "species")
+RANK_KEYS <- c("d", "p", "c", "o", "f", "g", "s")
+EXPECTED_DOMAIN <- "Eukaryota"
+
+# ---- reporting helpers -------------------------------------------------------
+errors <- character(0)
+warnings <- character(0)
+add_error <- function(msg) errors[[length(errors) + 1]] <<- msg
+add_warning <- function(msg) warnings[[length(warnings) + 1]] <<- msg
+
+# first two tokens (genus species), lowercased and stripped of punctuation
+# (so "Skoliomonas sp. GEMRC" and "Skoliomonas sp GEMRC" compare equal)
+binomial <- function(name) {
+  clean <- gsub("[^[:alnum:] ]", " ", tolower(trimws(name)))
+  paste(head(strsplit(clean, "\\s+")[[1]], 2), collapse = " ")
+}
+
+# validate one lineage string; returns the 7 rank values or NULL if malformed
+check_lineage <- function(lineage, where) {
+  ranks <- str_split(lineage, ";")[[1]]
+  if (length(ranks) != length(RANK_PREFIXES)) {
+    add_error(sprintf(
+      "%s: lineage has %d rank(s), expected %d (d__;p__;c__;o__;f__;g__;s__): '%s'",
+      where, length(ranks), length(RANK_PREFIXES), lineage))
+    return(NULL)
+  }
+  values <- character(length(RANK_PREFIXES))
+  ok <- TRUE
+  for (i in seq_along(RANK_PREFIXES)) {
+    rank <- trimws(ranks[[i]])
+    prefix <- RANK_PREFIXES[[i]]
+    if (!startsWith(rank, prefix)) {
+      add_error(sprintf("%s: expected rank prefix '%s' but found '%s'",
+                        where, prefix, rank))
+      ok <- FALSE
+      next
+    }
+    value <- trimws(substring(rank, nchar(prefix) + 1))
+    if (value == "") {
+      add_error(sprintf("%s: rank '%s' has no value", where, prefix))
+      ok <- FALSE
+    }
+    values[[i]] <- value
+  }
+  if (ok) values else NULL
+}
+
+# Build, from a reference eukaryotic taxonomy (mnemo<TAB>lineage, no custom
+# entries), a per-rank map child -> unique parent name(s). Used to detect custom
+# lineages that place a known taxon under a conflicting parent.
+parse_reference <- function(path) {
+  ref <- suppressWarnings(suppressMessages(
+    read_tsv(path, col_names = c("mnemo", "lineage"),
+             col_types = cols(.default = "c"), name_repair = "minimal")))
+  ref <- ref %>%
+    separate(lineage, RANK_KEYS, sep = ";", fill = "right", extra = "drop") %>%
+    mutate(across(all_of(RANK_KEYS), ~ trimws(gsub("^[a-z]__", "", .))))
+  maps <- vector("list", length(RANK_KEYS))
+  for (i in 2:length(RANK_KEYS)) {
+    d <- ref[, c(RANK_KEYS[i], RANK_KEYS[i - 1])]
+    names(d) <- c("child", "parent")
+    d <- unique(d[!is.na(d$child) & d$child != "" &
+                  !is.na(d$parent) & d$parent != "", ])
+    maps[[i]] <- split(d$parent, d$child)
+  }
+  maps
+}
+
+# Compare one custom lineage (7 rank values, prefixes stripped) against the
+# reference parent maps; flag a known taxon placed under a conflicting parent.
+check_conflicts <- function(values, where, maps) {
+  for (i in 2:length(values)) {
+    child <- values[[i]]
+    parent <- values[[i - 1]]
+    if (child == "" || parent == "") next
+    ref_parents <- maps[[i]][[child]]
+    if (is.null(ref_parents) || parent %in% ref_parents) next
+    msg <- sprintf(
+      "%s: %s '%s' is placed under %s '%s', but the eukaryotic taxonomy places it under '%s'",
+      where, RANK_LABELS[i], child, RANK_LABELS[i - 1], parent,
+      paste(ref_parents, collapse = "' / '"))
+    if (length(ref_parents) == 1) {
+      add_error(msg)
+    } else {
+      add_warning(paste(msg, "(reference is itself ambiguous here)"))
+    }
+  }
+}
+
+# ---- argument handling -------------------------------------------------------
+# out_path is a marker written on success (only when run from Snakemake).
+# reference_path is an optional reference eukaryotic taxonomy for the conflict
+# check; when absent, only the schema checks run.
+if (exists("snakemake")) {
+  table_path <- snakemake@input[["table"]]
+  check_fasta <- isTRUE(snakemake@params[["check_fasta"]])
+  out_path <- snakemake@output[[1]]
+  reference_path <- tryCatch({
+    r <- snakemake@input[["reference"]]
+    if (length(r) == 0) NULL else r[[1]]
+  }, error = function(e) NULL)
+} else {
+  args <- commandArgs(trailingOnly = TRUE)
+  check_fasta <- "--check-fasta" %in% args
+  args <- args[args != "--check-fasta"]
+  reference_path <- NULL
+  ri <- which(args == "--reference")
+  if (length(ri) == 1 && length(args) >= ri + 1) {
+    reference_path <- args[[ri + 1]]
+    args <- args[-c(ri, ri + 1)]
+  }
+  if (length(args) != 1) {
+    stop("usage: check_custom_proteomes.R <custom_proteome.tsv> [--reference <euk_tax.tsv>] [--check-fasta]")
+  }
+  table_path <- args[[1]]
+  out_path <- NULL
+}
+
+if (!file.exists(table_path)) {
+  stop(sprintf("file not found: %s", table_path))
+}
+message(sprintf("Validating custom proteome table: %s\n", table_path))
+
+# read everything as character; ignore any trailing empty header column
+df <- suppressWarnings(suppressMessages(
+  read_tsv(table_path, col_types = cols(.default = "c"), name_repair = "minimal")))
+df <- df[, !is.na(names(df)) & names(df) != "", drop = FALSE]
+
+# optional reference eukaryotic taxonomy for the conflict check
+parent_maps <- NULL
+if (!is.null(reference_path) && file.exists(reference_path) &&
+    file.info(reference_path)$size > 0) {
+  message(sprintf("Checking lineages against reference taxonomy: %s", reference_path))
+  parent_maps <- parse_reference(reference_path)
+}
+
+missing <- setdiff(REQUIRED_COLUMNS, names(df))
+report_and_exit <- function(n_rows) {
+  for (w in warnings) cat(sprintf("  WARNING: %s\n", w))
+  for (e in errors) cat(sprintf("  ERROR:   %s\n", e))
+  cat("\n")
+  cat(sprintf("Checked %d custom proteome(s): %d error(s), %d warning(s).\n",
+              n_rows, length(errors), length(warnings)))
+  if (length(errors) > 0) {
+    cat("FAILED - fix the errors above before running the pipeline.\n")
+    quit(status = 1)
+  }
+  cat("OK - the custom proteome table is valid.\n")
+  if (!is.null(out_path)) {
+    writeLines(sprintf(
+      "OK - %d custom proteome(s) valid, %d warning(s). Validated %s",
+      n_rows, length(warnings), table_path), out_path)
+  }
+  quit(status = 0)
+}
+
+if (length(missing) > 0) {
+  for (c in missing) add_error(sprintf("missing required column: '%s'", c))
+  report_and_exit(0)
+}
+
+# ---- per-row checks ----------------------------------------------------------
+seen_ids <- list()
+seen_fasta <- list()
+n_rows <- 0L
+
+for (i in seq_len(nrow(df))) {
+  row <- df[i, ]
+  # data row i is file line i + 1 (header is line 1)
+  lineno <- i + 1
+  get <- function(name) {
+    v <- row[[name]]
+    if (is.na(v)) "" else trimws(v)
+  }
+  rid <- get("ID")
+  if (rid == "" && get("Lineage") == "" && get("Fasta") == "") next  # blank line
+  n_rows <- n_rows + 1L
+  where <- sprintf("line %d (ID=%s)", lineno, if (rid == "") "<empty>" else rid)
+
+  # ID: present, CUS-prefixed, unique
+  if (rid == "") {
+    add_error(sprintf("%s: empty ID", where))
+  } else {
+    if (!startsWith(rid, "CUS")) {
+      add_error(sprintf(
+        "%s: ID must start with 'CUS' (non-CUS IDs are silently dropped by filter_tax.R)",
+        where))
+    } else if (any(startsWith(rid, RESERVED_PREFIXES))) {
+      add_error(sprintf("%s: ID collides with a reserved source prefix (%s)",
+                        where, paste(RESERVED_PREFIXES, collapse = ", ")))
+    }
+    if (!is.null(seen_ids[[rid]])) {
+      add_error(sprintf("%s: duplicate ID, first seen at line %d", where, seen_ids[[rid]]))
+    } else {
+      seen_ids[[rid]] <- lineno
+    }
+  }
+
+  # Lineage: exactly 7 well-formed ranks
+  lineage <- get("Lineage")
+  values <- NULL
+  if (lineage == "") {
+    add_error(sprintf("%s: empty Lineage", where))
+  } else {
+    values <- check_lineage(lineage, where)
+  }
+
+  # soft checks on a well-formed lineage
+  if (!is.null(values)) {
+    domain <- values[[1]]
+    species_rank <- values[[length(values)]]
+    if (domain != EXPECTED_DOMAIN) {
+      add_warning(sprintf(
+        "%s: domain is '%s', expected '%s' - custom entries are treated as eukaryotes downstream",
+        where, domain, EXPECTED_DOMAIN))
+    }
+    species <- get("Species")
+    if (species != "" && binomial(species) != "" &&
+        binomial(species) != binomial(species_rank)) {
+      add_warning(sprintf(
+        "%s: Species '%s' does not match the s__ rank '%s' (possible mislabel or cross-organism row)",
+        where, species, species_rank))
+    }
+    # conflict against the broader eukaryotic taxonomy (if a reference was given)
+    if (!is.null(parent_maps)) {
+      check_conflicts(values, where, parent_maps)
+    }
+  }
+
+  # Fasta path
+  fasta <- get("Fasta")
+  if (fasta == "") {
+    add_error(sprintf("%s: empty Fasta path", where))
+  } else {
+    if (!is.null(seen_fasta[[fasta]])) {
+      add_warning(sprintf("%s: duplicate Fasta path, first seen at line %d",
+                          where, seen_fasta[[fasta]]))
+    } else {
+      seen_fasta[[fasta]] <- lineno
+    }
+    if (check_fasta && (!file.exists(fasta) || file.info(fasta)$size == 0)) {
+      add_warning(sprintf("%s: Fasta path missing or empty: %s", where, fasta))
+    }
+  }
+}
+
+report_and_exit(n_rows)

@@ -145,6 +145,8 @@ def gtdb_custom(wildcards):
 rule get_custom_genomes:
     input:
         custom_table=config["files"]["new_genomes"],
+        # gate: the custom table must pass validation before it is used
+        valid=rules.validate_custom_proteomes.output,
     output:
         "results/proteomes/cus/{genome}.faa.gz",
     localrule: True

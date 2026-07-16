@@ -1,0 +1,60 @@
+# Authors' profile — Barcelona Supercomputing Center (SLURM).
+#
+# Run with:
+#     snakemake --workflow-profile workflow/profiles/bsc -j <max_parallel_jobs>
+# Requires the SLURM executor plugin:
+#     pip install snakemake-executor-plugin-slurm
+
+executor: slurm
+# These are SBATCH parameters
+default-resources:
+  slurm_partition: gp_bscls
+  slurm_account: bsc40
+  slurm_extra: "'--qos=gp_bscls'"
+  mem_mb: None
+  cpus_per_task: 12
+  runtime: 120 # 2 hours
+
+local-cores: 1
+keep-going: true
+rerun-incomplete: true
+printshellcmds: true
+sdm: conda
+conda-prefix: "/gpfs/projects/bsc40/current/gmutti/software/conda/repdb/"
+rerun-triggers: [code,input,mtime,params]
+
+group-components:
+  - cluster_db=6
+  - dmnd_bench=4
+  - mmseqs_bench=4
+
+# Per-rule thread counts. These were previously set via the `cpus_per_task`
+# resource and consumed in the shell as {resources.cpus_per_task}; the rules now
+# use {threads}, so the tuning is declared with set-threads (which also drives
+# --cpus-per-task on SLURM).
+set-threads:
+  get_class: 4
+  cluster_class: 4
+  cluster_decontaminate: 112
+  make_mmseqsdb_clustering: 112
+  make_mmseqsdb: 112
+  make_diamonddb: 112
+  make_blastdb: 112
+  diamond_random_seqs: 28
+  mmseqstax_random_seqs: 112
+
+set-resources:
+  make_db_fasta:
+    runtime: 360
+  merge_clustered:
+    runtime: 800
+  cluster_decontaminate:
+    runtime: 400
+    # highmem constraint (moved here from the rule so the rules stay portable)
+    slurm_extra: "'--qos=gp_bscls' '--constraint=highmem'"
+  make_blastdb:
+    runtime: 600
+  diamond_random_seqs:
+    runtime: 600
+  mmseqstax_random_seqs:
+    runtime: 360
