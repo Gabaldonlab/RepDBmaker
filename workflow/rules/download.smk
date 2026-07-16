@@ -1,7 +1,32 @@
+GTDB_BASE = "https://data.ace.uq.edu.au/public/gtdb/data/releases"
+
+
+def gtdb_url(filename, version=config["dbs"]["gtdb_version"]):
+    """Build a GTDB download URL, handling the two layouts GTDB uses.
+
+    `filename` is the base name as it appears under the `latest/` directory,
+    e.g. "bac120_taxonomy.tsv"
+
+        latest        -> releases/latest/<name>.<ext>
+        release<NNN>  -> releases/release<NNN>/<NNN>.<minor>/<name>_r<NNN>.<ext>
+    """
+    if version == "latest":
+        return f"{GTDB_BASE}/latest/{filename}"
+    num = "".join(c for c in version if c.isdigit())
+    minor = str(config["dbs"].get("gtdb_minor", 0))
+    head, _, tail = filename.rpartition("/")
+    stem, dot, ext = tail.partition(".")
+    tail_r = f"{stem}_r{num}{dot}{ext}"
+    subpath = f"{head}/{tail_r}" if head else tail_r
+    return f"{GTDB_BASE}/release{num}/{num}.{minor}/{subpath}"
+
+
 # Download unieuk taxonomy
 
 
 rule download_unieuk:
+    params:
+        unieuk_version=config["dbs"]["unieuk_version"]
     output:
         "results/meta/unieuk_taxonomy.tsv",
     localrule: True
@@ -11,7 +36,7 @@ rule download_unieuk:
         "../envs/utils.yaml"
     shell:
         """
-wget https://eukmap.unieuk.net/exports/unieuk/1.0.0-first_release/unieuk-1.0.0-first_release.tsv -O {output} 2> {log}
+wget https://eukmap.unieuk.net/exports/unieuk/{params.unieuk_version}/unieuk-{params.unieuk_version}.tsv -O {output} 2> {log}
 """
 
 
@@ -48,14 +73,17 @@ rule get_gtdb_tax:
     log: 
         "results/log/downloads/gtdb.log"
     params:
-        gtdb=config["dbs"]["gtdb_version"],
+        bac_url=gtdb_url("bac120_taxonomy.tsv"),
+        ar_url=gtdb_url("ar53_taxonomy.tsv"),
+        bac_meta_url=gtdb_url("bac120_metadata.tsv.gz"),
+        ar_meta_url=gtdb_url("ar53_metadata.tsv.gz"),
     localrule: True
     shell:
         """
-wget -O {output.bac} https://data.ace.uq.edu.au/public/gtdb/data/releases/{params.gtdb}/bac120_taxonomy.tsv 2> {log}
-wget -O {output.ar}  https://data.ace.uq.edu.au/public/gtdb/data/releases/{params.gtdb}/ar53_taxonomy.tsv 2>> {log}
-wget -O {output.bac_meta} https://data.ace.uq.edu.au/public/gtdb/data/releases/{params.gtdb}/bac120_metadata.tsv.gz 2>> {log}
-wget -O {output.ar_meta} https://data.ace.uq.edu.au/public/gtdb/data/releases/{params.gtdb}/ar53_metadata.tsv.gz 2>> {log}
+wget -O {output.bac} {params.bac_url} 2> {log}
+wget -O {output.ar}  {params.ar_url} 2>> {log}
+wget -O {output.bac_meta} {params.bac_meta_url} 2>> {log}
+wget -O {output.ar_meta} {params.ar_meta_url} 2>> {log}
 
 zcat {output.bac_meta} {output.ar_meta} | csvtk filter2 -t -f'$gtdb_representative=="t"' > {output.meta}
 
@@ -71,16 +99,14 @@ rule get_gtdb_genomes:
     output:
         "results/tmp/gtdb_proteins_aa_reps.tar.gz",
     params:
-        gtdb=config["dbs"]["gtdb_version"],
-    log: 
+        url=gtdb_url("genomic_files_reps/gtdb_proteins_aa_reps.tar.gz"),
+    log:
         "results/log/downloads/gtdb_genomes.log"
-    conda: 
+    conda:
         "../envs/utils.yaml"
     shell:
         """
-wget -O {output} \
-https://data.ace.uq.edu.au/public/gtdb/data/releases/{params.gtdb}/genomic_files_reps/gtdb_proteins_aa_reps.tar.gz \
-2> {log}
+wget -O {output} {params.url} 2> {log}
 """
 
 
@@ -129,10 +155,10 @@ rule get_eukprot:
         "../envs/utils.yaml"
     shell:
         """
-wget -O - https://figshare.com/ndownloader/files/34436249 | sed 's/\\"//g' > {output.euk_excluded} 2> {log}
-wget -O - https://figshare.com/ndownloader/files/34436246 | sed 's/\\"//g' > {output.euk_included} 2>> {log}
+wget -O - https://ndownloader.figshare.com/files/34436249 | sed 's/\\"//g' > {output.euk_excluded} 2> {log}
+wget -O - https://ndownloader.figshare.com/files/34436246 | sed 's/\\"//g' > {output.euk_included} 2>> {log}
 wget --no-check-certificate -O {output.euk_busco} https://evocellbio.com/SAGdb/images/EukProtv3.busco.output.txt 2>> {log}
-wget -O {output.euk_fa} https://figshare.com/ndownloader/files/34434377 2>> {log}
+wget -O {output.euk_fa} https://ndownloader.figshare.com/files/34434377 2>> {log}
 """
 
 
