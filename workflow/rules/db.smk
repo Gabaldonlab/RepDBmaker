@@ -93,7 +93,7 @@ rule make_mmseqsdb_clustering:
         """ 
 mmseqs createdb {input.fa} {output.db} > {log}
 mmseqs createtaxdb {output.db} $TMPDIR --ncbi-tax-dump {input.taxdump} \
---tax-mapping-file {input.taxidmap} --threads {resources.cpus_per_task} >> {log}
+--tax-mapping-file {input.taxidmap} --threads {threads} >> {log}
 """
 
 
@@ -148,7 +148,7 @@ rule make_diamonddb:
     # group: "create_db"
     shell:
         """
-diamond makedb --in {input.fa} -d {output} --threads {resources.cpus_per_task} \
+diamond makedb --in {input.fa} -d {output} --threads {threads} \
 --taxonnodes {input.taxdump}/nodes.dmp --taxonmap {input.taxidmap} 2> {log}
 touch {output}
 """
@@ -176,5 +176,5 @@ rule make_mmseqsdb:
         """
 mmseqs createdb {input.fa} {output} > {log}
 mmseqs createtaxdb {output} $TMPDIR --ncbi-tax-dump {input.taxdump} \
---tax-mapping-file {input.taxidmap} --threads {resources.cpus_per_task} >> {log}
+--tax-mapping-file {input.taxidmap} --threads {threads} >> {log}
 """

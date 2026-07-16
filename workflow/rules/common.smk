@@ -152,8 +152,9 @@ rule get_custom_genomes:
         "../envs/utils.yaml"
     shell:
         """
-file=$(grep {wildcards.genome} {input.custom_table} | cut -f4)
-cat $file | gzip > {output} 
+# exact match on the ID column (field 1) to avoid prefix collisions, e.g. CUS001 vs CUS0010
+file=$(awk -F'\\t' -v g="{wildcards.genome}" '$1==g {{print $4}}' {input.custom_table})
+cat $file | gzip > {output}
 """
 
 
@@ -196,7 +197,8 @@ rule get_uniprot_genomes:
         "../envs/utils.yaml"
     shell:
         """
-taxid=$(grep {wildcards.genome} {input.up} | cut -f2)
+# exact match on the proteome ID column (field 1) to avoid prefix collisions
+taxid=$(awk -F'\\t' -v g="{wildcards.genome}" '$1==g {{print $2}}' {input.up})
 FTP_URL="https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/Eukaryota/{wildcards.genome}/{wildcards.genome}_$taxid.fasta.gz"
 REST_URL="https://rest.uniprot.org/uniparc/proteome/{wildcards.genome}/stream?compressed=true&format=fasta"
 

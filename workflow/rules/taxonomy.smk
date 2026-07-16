@@ -2,11 +2,12 @@ rule virus_taxonomy:
     input:
         meta=rules.get_virus_genomes.output.meta,
         folder=rules.get_virus_genomes.output.folder,
+        # declared as input (not params) so Snakemake enforces the dependency
+        # on download_taxdump and avoids a race condition
+        taxdump=rules.download_taxdump.output,
     output:
         ids="results/meta/refseq_virus_ids.txt",
         tax="results/taxonomies/virus_taxonomy.tsv",
-    params:
-        taxdump=rules.download_taxdump.output,
     conda:
         "../envs/utils.yaml"
     localrule: True
@@ -14,7 +15,7 @@ rule virus_taxonomy:
         """
 unzip -l {input.folder} | awk '{{print $NF}}' | grep protein | cut -f3 -d'/' > {output.ids}
 cut -f1,6 {input.meta} | grep -F -w -f {output.ids} | sed 's/_//' | sed 's/\\..*\\t/\\t/g' | \
-taxonkit reformat -I 2 -P -F -p "unclassified_" -s "" --data-dir {params.taxdump} | cut -f1,3 | \
+taxonkit reformat -I 2 -P -F -p "unclassified_" -s "" --data-dir {input.taxdump} | cut -f1,3 | \
 sed 's/k__unclassified_Viruses/d__Viruses/g'> {output.tax}
 """
 

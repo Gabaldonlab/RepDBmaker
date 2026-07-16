@@ -23,14 +23,31 @@ It supports:
 Optional features include taxonomic clustering and contamination filtering.
 
 
-## Insallation
+## Installation
 
 ### Requirements
 
-- [Snakemake](https://snakemake.readthedocs.io/en/stable/getting_started/installation.html)
+- [Snakemake](https://snakemake.readthedocs.io/en/stable/getting_started/installation.html) (v8.11.6)
 - Conda or Miniconda
 - Internet access for external downloads
 - Sufficient disk space for genome and database files
+
+### Choosing an executor
+
+By default this repository ships with a cluster profile in
+`workflow/profiles/default/config.yaml` that targets the authors' SLURM
+cluster (Barcelona Supercomputing Center). Snakemake auto-loads this profile,
+so on any other system you must either edit it or bypass it.
+
+- **SLURM users**: install the executor plugin
+  (`pip install snakemake-executor-plugin-slurm`) and edit
+  `workflow/profiles/default/config.yaml` to set your own `slurm_partition`,
+  `slurm_account`, `slurm_extra` and `conda-prefix` (the default `conda-prefix`
+  points at a `/gpfs` path you cannot write to).
+- **Other schedulers or a single machine**: bypass the bundled profile with
+  `--workflow-profile none` and select an executor, e.g. run locally with
+  `-e local` (or set `executor: local` in your own profile). PBS/LSF users can
+  install the matching Snakemake executor plugin.
 
 If using `--sdm conda`, Snakemake will automatically create the following environments from `workflow/envs/`:
 
@@ -53,6 +70,16 @@ If [Docker](https://docs.docker.com/engine/install/) is installed, run the pipel
 
 ```bash
 docker run --rm -v $(pwd):/app/data gmuttiirb/repdbmaker:v1.0 snakemake --cores 2 --directory /app/data -n
+```
+
+For reproducible pulls, reference the image by its immutable digest rather than
+the mutable `:v1.0` tag (replace the digest below with the one printed by
+`docker inspect --format='{{index .RepoDigests 0}}' gmuttiirb/repdbmaker:v1.0`):
+
+```bash
+docker run --rm -v $(pwd):/app/data \
+  gmuttiirb/repdbmaker@sha256:5531958bdfe5... \
+  snakemake --cores 2 --directory /app/data -n
 ```
 
 ## Quick start
@@ -193,7 +220,21 @@ A results notebook is available at `workflow/notebooks/comparison.Rmd`.
 
 ## Citation
 
-Please add the preferred citation here.
+If you use RepDBmaker or RepDB, please cite:
+
+> Mutti G. and Gabaldón T. Automated reconstruction of reproducible protein
+> databases with RepDBmaker. *Protein Science* (2026). [manuscript 4947634]
+> DOI: <add DOI on acceptance>
+
+```bibtex
+@article{mutti_repdbmaker,
+  author  = {Mutti, Giacomo and Gabald\'on, Toni},
+  title   = {Automated reconstruction of reproducible protein databases with RepDBmaker},
+  journal = {Protein Science},
+  year    = {2026},
+  note    = {TODO: add volume, pages and DOI on acceptance}
+}
+```
 
 ## License
 

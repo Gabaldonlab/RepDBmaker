@@ -40,7 +40,7 @@ rule diamond_random_seqs:
     threads: 28
     shell:
         """
-diamond blastp -q {input} -d {params.db} --out {output} --threads {resources.cpus_per_task} \
+diamond blastp -q {input} -d {params.db} --out {output} --threads {threads} \
 --outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore qcovhsp qlen slen \
 --evalue 0.0001 --max-target-seqs 100 --max-hsps 1 --tmpdir $TMPDIR 2> {log}
 """
@@ -67,7 +67,7 @@ rule mmseqstax_random_seqs:
         """
 output=$(echo {output} | sed 's/_report$//g')
 mmseqs easy-taxonomy {input} {params.db} $output $TMPDIR \
---lca-mode {params.lca} --threads {resources.cpus_per_task} &> {log}
+--lca-mode {params.lca} --threads {threads} &> {log}
 """
 
 
