@@ -38,7 +38,8 @@ rule virus_taxonomy:
 unzip -l {input.folder} | awk '{{print $NF}}' | grep protein | cut -f3 -d'/' > {output.ids}
 cut -f1,6 {input.meta} | grep -F -w -f {output.ids} | sed 's/_//' | sed 's/\\..*\\t/\\t/g' | \
 taxonkit reformat -I 2 -P -F -p "unclassified_" -s "" --data-dir {input.taxdump} | cut -f1,3 | \
-sed 's/k__unclassified_Viruses/d__Viruses/g'> {output.tax}
+sed 's/k__unclassified_Viruses/d__Viruses/g' | \
+awk -F'\\t' '$2 ~ /[^;]/'> {output.tax}
 """
 
 
