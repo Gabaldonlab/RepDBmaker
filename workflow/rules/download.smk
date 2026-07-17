@@ -1,7 +1,7 @@
 GTDB_BASE = "https://data.ace.uq.edu.au/public/gtdb/data/releases"
+NCBI_BASE = "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy"
 
-
-def gtdb_url(filename, version=config["dbs"]["gtdb_version"]):
+def gtdb_url(filename, version=config["versions"]["gtdb"]):
     """Build a GTDB download URL, handling the two layouts GTDB uses.
 
     `filename` is the base name as it appears under the `latest/` directory,
@@ -13,20 +13,32 @@ def gtdb_url(filename, version=config["dbs"]["gtdb_version"]):
     if version == "latest":
         return f"{GTDB_BASE}/latest/{filename}"
     num = "".join(c for c in version if c.isdigit())
-    minor = str(config["dbs"].get("gtdb_minor", 0))
     head, _, tail = filename.rpartition("/")
     stem, dot, ext = tail.partition(".")
     tail_r = f"{stem}_r{num}{dot}{ext}"
     subpath = f"{head}/{tail_r}" if head else tail_r
-    return f"{GTDB_BASE}/release{num}/{num}.{minor}/{subpath}"
+    return f"{GTDB_BASE}/release{num}/{num}.0/{subpath}"
 
+def taxdump_url(version=config["versions"]["taxdump"]):
+    """Build a TaxDump download URL.
+
+    `filename` is the base name as it appears under the `latest/` directory,
+    e.g. "bac120_taxonomy.tsv"
+
+        latest        -> https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz
+        release<NNN>  -> https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump_archive/taxdmp_{version}.zip
+    """
+    if version == "latest":
+        return f"{NCBI_BASE}/taxdump.tar.gz"
+    else:
+        return f"{NCBI_BASE}/taxdump_archive/taxdmp_{version}.zip"
 
 # Download unieuk taxonomy
 
 
 rule download_unieuk:
     params:
-        unieuk_version=config["dbs"]["unieuk_version"]
+        unieuk_version=config["versions"]["unieuk"]
     output:
         "results/meta/unieuk_taxonomy.tsv",
     localrule: True
@@ -45,6 +57,9 @@ rule download_taxdump:
         td=directory("results/taxdump/ncbi_taxdump"),
         # acc2taxid="results/tmp/prot.accession2taxid.FULL.gz"
     localrule: True
+    params: 
+        taxdump_url=taxdump_url(version=config["versions"]["taxdump"]),
+        taxdump_version=config["versions"]["taxdump"]
     log: 
         "results/log/downloads/taxdump.log"
     conda: 
@@ -52,8 +67,14 @@ rule download_taxdump:
     shell:
         """
 mkdir -p {output.td}
-wget -O {output.td}/ncbi_taxdump.tar.gz https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz 2> {log}
-tar xf {output.td}/ncbi_taxdump.tar.gz -C {output.td}
+if [[ {params.taxdump_version} == "latest" ]];
+then
+    wget -O {output.td}/ncbi_taxdump.tar.gz {params.taxdump_url} 2> {log}
+    tar xf {output.td}/ncbi_taxdump.tar.gz -C {output.td}
+else
+    wget -O {output.td}/ncbi_taxdump.zip {params.taxdump_url} 2> {log}
+    unzip -o {output.td}/ncbi_taxdump.zip -d {output.td}
+fi
 """
 # wget -O {output.acc2taxid} https://ftp.ncbi.nih.gov/pub/taxonomy/accession2taxid/prot.accession2taxid.gz
 

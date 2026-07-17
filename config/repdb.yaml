@@ -1,7 +1,10 @@
 # Database configuration
+versions:
+  gtdb: "release226" # use latest to use most recent version
+  unieuk: "0.0.1-pre_release"
+  taxdump: "2026-07-01" # use latest to use most recent version
+
 dbs:
-  gtdb_version: "release226"  # use latest to use most recent version
-  unieuk_version: "0.0.1-pre_release"
   type: ["diamond", "mmseqs"]  # Available database types: diamond, mmseqs, blastp
   # Which databases to build
   build:
