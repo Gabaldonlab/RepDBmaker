@@ -9,10 +9,13 @@ color_benchdbs <- c("nr"="#20558A",
                     "repdb"="#449E77",
                     "clustrepdb"="#62E4AB")
 
-color_dbs <- c("p10k"="#449E77", 
-               "eukprot"="#EBCD62", 
+color_dbs <- c("p10k"="#449E77",
+               "eukprot"="#EBCD62",
                "uniprot"="#CA3D54",
                "custom"="#933E9A")
+
+# full source palette: the four eukaryotic dbs plus prokaryotes/viruses/other
+color_sources <- c(color_dbs, "gtdb"="#3d6dcc", "virus"="#7a7a7a", "other"="#cccccc")
 
 type_palette <- c("Genome"="#762A83",
                   "S.C. genome"="#C2A5CF",

@@ -97,6 +97,18 @@ for (species in 1:nrow(ncbi)) {
             sub_df <- taxonomy[which(grepl(paste0("^", taxon, "$"), last_clade)),]
             
             if (nrow(sub_df) > 0) {
+                # A clade name can be homonymous across UniEuk (e.g. the animal
+                # subphylum "Vertebrata" vs the red-alga genus "Vertebrata",
+                # which sit under different supergroups). If the matches disagree
+                # on supergroup, this taxon is ambiguous: skip it and try a
+                # higher, unambiguous one, rather than emitting one contradictory
+                # row per supergroup (which duplicated ~700 UniProt proteomes).
+                if (length(unique(sub_df$V2)) > 1) {
+                    next
+                }
+                # keep a single row (same supergroup) so vector recycling in
+                # add_row() cannot create multiple rows for one proteome.
+                sub_df <- sub_df[1, , drop = FALSE]
                 found <- TRUE
                 # Extract taxonomic information from UniEuk data
                 new_class <- sub_df[which(sub_df %in% eukprot_groups$Supergroup_UniEuk)]

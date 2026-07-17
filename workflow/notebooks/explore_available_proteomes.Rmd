@@ -1,0 +1,166 @@
+---
+title: "Exploring the available proteomes"
+date: "`r format(Sys.time(), '%d-%b-%Y')`"
+output:
+    rmdformats::html_clean:
+        number_sections: false
+        code_folding: show
+        self_contained: true
+        toc_depth: 3
+        highlight: kate
+params:
+    available: "results/meta/available_proteomes.tsv"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = FALSE, warning = FALSE, message = FALSE)
+```
+
+This is a **boilerplate** notebook for exploring `available_proteomes.tsv`, the
+menu of everything RepDBmaker could include, produced by:
+
+```bash
+snakemake -j1 --until available_proteomes
+```
+
+Use it to understand what is available before choosing a subset, and to write an
+`ids` file for a custom database. Adapt the filters to your question — the last
+section shows how to export a selection. Point `params$available` at your file
+(default `results/meta/available_proteomes.tsv`); knit from the repository root.
+
+```{r libs}
+suppressPackageStartupMessages(library(tidyverse))
+theme_set(theme_classic())
+
+# shared helpers (rp, ...) and palettes (color_sources); knit from the repo root
+source("workflow/scripts/functions.R")
+source("workflow/scripts/palettes.R")
+```
+
+# Load and annotate
+
+The table has one row per proteome: `mnemo`, `Completeness`, `Data_type`, and the
+seven taxonomic ranks `k, p, c, o, f, g, s` (domain → species). We add a
+`source` (from the mnemo prefix and domain) and a numeric completeness.
+
+```{r load}
+prot <- read_tsv(rp(params$available), col_types = cols(.default = "c")) %>%
+    mutate(
+        Completeness = suppressWarnings(as.numeric(Completeness)),
+        domain = na_if(k, ""),
+        source = case_when(
+            str_starts(mnemo, "UP")  ~ "uniprot",
+            str_starts(mnemo, "EP")  ~ "eukprot",
+            str_starts(mnemo, "P10") ~ "p10k",
+            str_starts(mnemo, "CUS") ~ "custom",
+            k == "Viruses"           ~ "virus",
+            k %in% c("Bacteria", "Archaea") ~ "gtdb",
+            TRUE ~ "other"
+        )
+    )
+
+glimpse(prot)
+```
+
+# Overview: how many, from where
+
+```{r overview-table}
+prot %>%
+    count(domain, source, name = "n") %>%
+    arrange(desc(n)) %>%
+    knitr::kable(caption = "Proteomes per domain and source")
+```
+
+```{r overview-plot, fig.width=8, fig.height=4}
+prot %>%
+    count(source, domain) %>%
+    ggplot(aes(n, fct_reorder(domain, n, sum), fill = source)) +
+    geom_col() +
+    scale_fill_manual(values = color_sources) +
+    scale_x_continuous(labels = scales::label_number(big.mark = ",")) +
+    # scale_x_log10() +
+    labs(x = "proteomes", y = NULL, title = "Available proteomes by source and domain")
+```
+
+# Data types
+
+Different sources contribute different kinds of data (genomes, transcriptomes,
+single-cell, …). This matters when interpreting completeness and coverage.
+
+```{r data-type, fig.width=8, fig.height=4}
+prot %>%
+    count(source, Data_type) %>%
+    ggplot(aes(n, fct_reorder(Data_type, n, sum), fill = source)) +
+    geom_col() +
+    scale_fill_manual(values = color_sources) +
+    scale_x_continuous(labels = scales::label_number(big.mark = ",")) +
+    labs(x = "proteomes", y = NULL, title = "Data types per source")
+```
+
+# Taxonomic composition
+
+Top phyla per domain (edit `top_n` / the rank you group by). Because the sources
+use different frameworks, "phylum" (`p`) is not the same concept across domains
+(GTDB vs UniEuk vs ICTV) — see the harmonization QC report under `results/qc/`.
+
+```{r taxonomy, fig.width=9, fig.height=6}
+prot %>%
+    filter(!is.na(domain), p != "") %>%
+    count(domain, p) %>%
+    group_by(domain) %>%
+    slice_max(n, n = 12) %>%
+    ungroup() %>%
+    ggplot(aes(n, reorder(p, n), fill = domain)) +
+    geom_col(show.legend = FALSE) +
+    scale_x_continuous(labels = scales::label_number(big.mark = ",")) +
+    facet_wrap(~domain, scales = "free") +
+    labs(x = "proteomes", y = NULL, title = "Top phyla per domain")
+```
+
+# Completeness
+
+Completeness is numeric where available (CheckM2 for prokaryotes, BUSCO for
+eukaryotes) and missing for viruses. Remember BUSCO scores are **not comparable
+across lineages** (lineage-specific ortholog sets), so compare within a group.
+
+```{r completeness, fig.width=8, fig.height=4}
+prot %>%
+    filter(!is.na(Completeness)) %>%
+    ggplot(aes(Completeness, fct_reorder(source, Completeness), fill = source)) +
+    geom_boxplot(show.legend = FALSE, outlier.size = 0.5) +
+    scale_fill_manual(values = color_sources) +
+    labs(x = "completeness", y = NULL, title = "Completeness distribution by source")
+```
+
+# Subsetting: build an `ids` file
+
+Boilerplate for turning a selection into an `ids` file usable as a custom
+database (`dbs.build.custom.<name>.ids` in the config). Edit the `filter()` to
+your question.
+
+```{r subset}
+selection <- prot %>%
+    filter(
+        domain == "Eukaryota",
+        # example: keep reasonably complete proteomes only
+        is.na(Completeness) | Completeness >= 70,
+        # example: restrict to a clade (edit rank/value)
+        # p == "Discoba"
+    )
+
+nrow(selection)
+count(selection, source)
+```
+
+```{r write-ids, eval=FALSE}
+# write one mnemo per line; point the config's `ids:` at this file
+selection %>%
+    distinct(mnemo) %>%
+    write_tsv("resources/my_selection.ids", col_names = FALSE)
+```
+
+# Session info
+
+```{r session}
+sessionInfo()
+```

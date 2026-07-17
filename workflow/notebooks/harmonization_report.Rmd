@@ -1,0 +1,308 @@
+---
+title: "Taxonomy harmonization QC report"
+date: "`r format(Sys.time(), '%d-%b-%Y')`"
+output:
+    rmdformats::html_clean:
+        number_sections: false
+        code_folding: hide
+        self_contained: true
+        toc_depth: 3
+        highlight: kate
+params:
+    rmd: ""   # required by Snakemake's .Rmd script integration; ignored otherwise
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = FALSE, warning = FALSE, message = FALSE)
+```
+
+RepDBmaker harmonizes the UniProt (NCBI) and P10K (native) eukaryotic taxonomies
+into the UniEuk/EukProt framework. Sources built on different frameworks cannot
+be made uniform by harmonization alone (reviewer 1, methodological concern #3):
+this report makes the translation explicit — its coverage, where it re-labels a
+rank, genus changes, and proteomes mapped to **more than one** UniEuk lineage
+(*ambiguous* harmonization). It also writes machine-readable tables to the
+output directory.
+
+```{r libs}
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(ape))
+suppressPackageStartupMessages(library(ggtree))
+suppressPackageStartupMessages(library(ggtreeExtra))
+theme_set(theme_classic())
+
+# shared helpers (RANKS, rp, read_prefixed, changed, ambiguous_mnemos,
+# modal_parent) and palettes (color_dbs); source them whether the working
+# directory is the repo root or workflow/notebooks/
+.src <- function(p) source(if (file.exists(p)) p else file.path("..", "..", p))
+.src("workflow/scripts/functions.R")
+.src("workflow/scripts/palettes.R")
+
+# resolve inputs/outdir from the snakemake object (pipeline, script: directive)
+# or the YAML params (standalone rendering); `params` itself is locked.
+P <- if (exists("snakemake")) {
+  list(
+    eukprot        = snakemake@input[["eukprot"]],
+    uniprot_ncbi   = snakemake@input[["uniprot_ncbi"]],
+    uniprot_unieuk = snakemake@input[["uniprot_unieuk"]],
+    p10k_orig      = snakemake@input[["p10k_orig"]],
+    p10k_unieuk    = snakemake@input[["p10k_unieuk"]],
+    custom         = snakemake@input[["custom"]],
+    outdir         = dirname(snakemake@output[["html"]])
+  )
+} else {
+  params
+}
+
+outdir <- rp(P$outdir)
+dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
+```
+
+# EukProt backbone tree with UniProt & P10K tips
+
+The tree is the taxonomic backbone (`domain/phylum/class/order/family`) with
+EukProt as the scaffold. **Branches are coloured by origin** — grey where the
+clade is in the EukProt backbone, and by the database that introduces it
+otherwise (so you can see which branches each db *adds*). The outer **stacked
+bar** (ggtreeExtra) gives, per family, the number of proteomes contributed by
+each database. Harmonization maps every UniProt/P10K proteome onto an existing
+EukProt family, so those two add no new branches; custom proteomes (if supplied)
+do add new branches.
+
+```{r backbone_tree, fig.width=8, fig.height=8, dpi=450}
+bb_ranks <- c("d", "p", "c", "o", "f")
+
+# harmonized taxonomies of the eukaryotic sources, tagged by source; custom optional
+srcs <- list(
+  read_prefixed(P$eukprot) %>% mutate(source = "eukprot"),
+  read_prefixed(P$uniprot_unieuk) %>% mutate(source = "uniprot"),
+  read_prefixed(P$p10k_unieuk) %>% mutate(source = "p10k")
+)
+custom_path <- rp(P$custom)
+if (!is.null(P$custom) && file.exists(custom_path) &&
+  nrow(read_tsv(custom_path, col_names = FALSE, col_types = cols(), n_max = 1)) > 0) {
+  srcs <- c(srcs, list(read_prefixed(custom_path) %>% mutate(source = "custom")))
+}
+all_tax <- bind_rows(srcs) %>%
+  filter(if_all(all_of(bb_ranks), ~ !is.na(.) & . != ""))
+
+# Resolve a single consistent parent per node (top-down, by frequency) so the
+# union of the sources is a valid tree even where they disagree (modal_parent
+# lives in workflow/scripts/functions.R).
+bb_tax <- modal_parent(all_tax, "f", "o") %>%
+  left_join(modal_parent(all_tax, "o", "c"), by = "o") %>%
+  left_join(modal_parent(all_tax, "c", "p"), by = "c") %>%
+  left_join(modal_parent(all_tax, "p", "d"), by = "p") %>%
+  distinct(d, p, c, o, f) %>%
+  mutate(across(everything(), factor))
+backbone_tree <- as.phylo(~ d / p / c / o / f, data = bb_tax, collapse = TRUE)
+
+# origin of each clade (any rank): grey if in EukProt, else the db(s) that add it
+clade_origin <- all_tax %>%
+  select(source, all_of(c("p", "c", "o", "f"))) %>%
+  pivot_longer(-source, values_to = "clade") %>%
+  filter(clade != "" & !is.na(clade)) %>%
+  distinct(clade, source) %>%
+  group_by(clade) %>%
+  summarise(origin = if ("eukprot" %in% source) {
+    "EukProt (backbone)"
+  } else {
+    paste(sort(unique(source)), collapse = "+")
+  }, .groups = "drop")
+
+# per-family proteome counts by db (for the stacked-bar ring)
+db_lv <- intersect(c("eukprot", "uniprot", "p10k", "custom"), unique(all_tax$source))
+fam_long <- all_tax %>%
+  distinct(mnemo, f, source) %>%
+  count(f, source, name = "n") %>%
+  mutate(source = factor(source, levels = db_lv))
+
+# branch palette: grey backbone, canonical db colours, hue for combos
+td <- fortify(backbone_tree) %>%
+  left_join(clade_origin, by = c("label" = "clade")) %>%
+  mutate(origin = replace_na(origin, "EukProt (backbone)"))
+added_lv <- sort(setdiff(unique(td$origin), "EukProt (backbone)"))
+origin_pal <- setNames(scales::hue_pal()(max(length(added_lv), 1))[seq_along(added_lv)], added_lv)
+for (s in names(color_dbs)) if (s %in% added_lv) origin_pal[s] <- color_dbs[[s]]
+origin_pal["EukProt (backbone)"] <- "grey80"
+
+ggtree(td, layout = "circular", aes(colour = origin), linewidth = 0.4) +
+  scale_colour_manual(values = origin_pal, name = "branch origin") +
+  geom_tiplab(size = 1.3, colour = "grey20", offset = 1.5, hjust = 1) +
+  geom_fruit(
+    data = fam_long, geom = geom_col,
+    mapping = aes(y = f, x = log10(n), fill = source),
+    orientation = "y", pwidth = 0.4, offset = .4
+  ) +
+  # labs(subtitle = "EukProt taxonomic tree with log-scaled # of proteomes by DB") +
+  geom_nodelab(size = 1.3, colour = "grey20", hjust = 1) +
+  scale_fill_manual(values = color_dbs, name = "proteomes (db)") 
+```
+
+# UniProt: NCBI → UniEuk
+
+```{r uniprot}
+ncbi <- read_prefixed(P$uniprot_ncbi)
+uni <- read_prefixed(P$uniprot_unieuk)
+up_ambig <- ambiguous_mnemos(uni)
+cmp <- c("p", "c", "o", "f", "g", "s") # domain empty in NCBI, skip
+
+up <- uni %>%
+  select(mnemo, unieuk_lineage = lineage, all_of(cmp)) %>%
+  rename_with(~ paste0(.x, "_unieuk"), all_of(cmp)) %>%
+  left_join(ncbi %>% select(mnemo, ncbi_lineage = lineage, all_of(cmp)) %>%
+    rename_with(~ paste0(.x, "_ncbi"), all_of(cmp)), by = "mnemo") %>%
+  mutate(ambiguous = mnemo %in% up_ambig)
+
+for (r in cmp) {
+  up[[paste0(r, "_changed")]] <- changed(
+    up[[paste0(r, "_ncbi")]],
+    up[[paste0(r, "_unieuk")]]
+  )
+}
+chg <- as.matrix(up[paste0(cmp, "_changed")])
+up$n_ranks_changed <- rowSums(chg)
+up$changed_ranks <- apply(chg, 1, function(x) paste(cmp[x], collapse = ","))
+up_detail <- up %>% select(
+  mnemo, ambiguous, n_ranks_changed, changed_ranks,
+  ncbi_lineage, unieuk_lineage, ends_with("_ncbi"), ends_with("_unieuk")
+)
+up_cross <- up %>%
+  count(ncbi_phylum = p_ncbi, unieuk_phylum = p_unieuk, name = "n") %>%
+  arrange(desc(n))
+```
+
+`r n_distinct(uni$mnemo)` UniProt proteomes; **`r length(up_ambig)`** are
+*ambiguous* (mapped to more than one UniEuk lineage). Because NCBI and UniEuk
+use "phylum" for different concepts, most phylum labels are re-assigned — the
+crosstab below is the actual translation map.
+
+```{r uniprot-rankchange, fig.width=5, fig.height=3}
+up %>%
+  select(paste0(cmp, "_changed")) %>%
+  pivot_longer(cols = everything()) %>%
+  mutate(rank = factor(gsub("_changed", "", name), levels = cmp)) %>%
+  ggplot(aes(rank, fill = value)) +
+  geom_bar() +
+  labs(
+    x = "rank", y = "assignments relabelled",
+    fill = "Changed",
+    title = "UniProt: NCBI vs UniEuk relabelling per rank"
+  ) +
+  scale_fill_manual(values = c("grey80", "#D50048")) +
+  scale_y_continuous(expand = expansion(c(0, 0.02)))
+```
+
+```{r uniprot-crosstab, fig.width=5, fig.height=8}
+up_cross %>%
+  # filter(ncbi_phylum %in% top_phyla, ncbi_phylum != "", unieuk_phylum != "") %>%
+  ggplot(aes(unieuk_phylum, fct_rev(ncbi_phylum), fill = n)) +
+  geom_tile() +
+  geom_text(aes(label = n), size = 2.6, colour = "white") +
+  scale_fill_viridis_c(trans = "log10") +
+  labs(
+    x = "UniEuk phylum (supergroup)", y = "NCBI phylum",
+    title = "NCBI phylum -> UniEuk phylum"
+  ) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+```{r uniprot-ambig-table}
+if (length(up_ambig) > 0) {
+  uni %>%
+    filter(mnemo %in% up_ambig) %>%
+    select(mnemo, lineage) %>%
+    arrange(mnemo) %>%
+    head(10) %>%
+    knitr::kable(caption = "Examples of ambiguous UniProt proteomes (first 10)")
+}
+```
+
+# P10K: native → UniEuk
+
+```{r p10k}
+p10k_cols <- c(
+  "supergroup", "phylum", "class",
+  "order", "family", "genus", "sp"
+)
+p10k_orig <- read_tsv(rp(P$p10k_orig),
+  col_names = c("mnemo", "species", "lineage"),
+  col_types = cols(.default = "c"),
+  name_repair = "minimal"
+) %>%
+  distinct() %>%
+  separate(lineage, p10k_cols, sep = ";", fill = "right", extra = "drop", remove = FALSE) %>%
+  rename(orig_lineage = lineage) %>%
+  mutate(
+    supergroup = trimws(supergroup),
+    across(all_of(p10k_cols[-1]), ~ trimws(gsub("^[A-Z]_", "", .)))
+  )
+p10k_harm <- read_prefixed(P$p10k_unieuk) %>% rename(unieuk_lineage = lineage)
+p10_ambig <- ambiguous_mnemos(p10k_harm %>% rename(lineage = unieuk_lineage))
+p10 <- p10k_harm %>%
+  left_join(p10k_orig %>% select(mnemo, orig_lineage, supergroup, orig_genus = genus), by = "mnemo") %>%
+  mutate(genus_changed = changed(orig_genus, g), ambiguous = mnemo %in% p10_ambig)
+p10_detail <- p10 %>% transmute(mnemo, ambiguous,
+  orig_supergroup = supergroup,
+  unieuk_phylum = p, unieuk_class = c, orig_genus, unieuk_genus = g,
+  genus_changed, orig_lineage, unieuk_lineage
+)
+p10_cross <- p10 %>%
+  count(p10k_supergroup = supergroup, unieuk_phylum = p, name = "n") %>%
+  arrange(desc(n))
+```
+
+`r n_distinct(p10k_harm$mnemo)` P10K proteomes; **`r length(p10_ambig)`**
+ambiguous, **`r sum(p10$genus_changed)`** with a changed genus. P10K's native
+NCBI-based supergroups are translated to UniEuk phyla as follows:
+
+```{r p10k-crosstab, fig.width=4, fig.height=5}
+p10_cross %>%
+  filter(p10k_supergroup != "", unieuk_phylum != "") %>%
+  ggplot(aes(unieuk_phylum, fct_rev(p10k_supergroup), fill = n)) +
+  geom_tile() +
+  geom_text(aes(label = n), size = 2.6, colour = "white") +
+  scale_fill_viridis_c(trans = "log10") +
+  labs(
+    x = "UniEuk phylum (supergroup)", y = "P10K supergroup",
+    title = "P10K supergroup -> UniEuk phylum"
+  ) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+# Summary and outputs
+
+```{r summary}
+summary <- tibble(
+  metric = c(
+    "uniprot_n_proteomes", "uniprot_n_harmonized_assignments",
+    "uniprot_n_ambiguous", "uniprot_n_unharmonized", "uniprot_n_phylum_relabelled",
+    "p10k_n_proteomes", "p10k_n_ambiguous", "p10k_n_unharmonized",
+    "p10k_n_genus_changed", "p10k_n_unieuk_phylum_empty", "p10k_n_unieuk_class_empty"
+  ),
+  value = c(
+    n_distinct(uni$mnemo), nrow(uni), length(up_ambig),
+    sum(!ncbi$mnemo %in% uni$mnemo), n_distinct(up$mnemo[changed(up$p_ncbi, up$p_unieuk)]),
+    n_distinct(p10k_harm$mnemo), length(p10_ambig), sum(!p10k_orig$mnemo %in% p10k_harm$mnemo),
+    n_distinct(p10$mnemo[p10$genus_changed]), sum(p10$p == "" | is.na(p10$p)),
+    sum(p10$c == "" | is.na(p10$c))
+  )
+)
+knitr::kable(summary, caption = "Harmonization summary")
+
+ambiguous <- bind_rows(
+  uni %>% filter(mnemo %in% up_ambig) %>% transmute(source = "uniprot", mnemo, unieuk_lineage = lineage),
+  p10k_harm %>% filter(mnemo %in% p10_ambig) %>% transmute(source = "p10k", mnemo, unieuk_lineage)
+) %>% arrange(source, mnemo)
+
+# machine-readable outputs
+write_tsv(up_detail, file.path(outdir, "harmonization_uniprot.tsv"))
+write_tsv(p10_detail, file.path(outdir, "harmonization_p10k.tsv"))
+write_tsv(ambiguous, file.path(outdir, "harmonization_ambiguous.tsv"))
+```
+
+Wrote detail, crosstab, ambiguous and summary tables to `` `r P$outdir` ``.
+
+```{r session}
+sessionInfo()
+```

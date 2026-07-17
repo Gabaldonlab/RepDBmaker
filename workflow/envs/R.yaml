@@ -20,3 +20,7 @@ dependencies:
   - r-phytools
   - r-tidyverse
   - r-wesanderson
+  # rendering the QC report notebook (rule taxonomy_harmonization_report)
+  - r-rmarkdown
+  - r-rmdformats
+  - pandoc

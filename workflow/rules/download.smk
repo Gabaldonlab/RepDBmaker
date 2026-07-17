@@ -55,8 +55,6 @@ mkdir -p {output.td}
 wget -O {output.td}/ncbi_taxdump.tar.gz https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz 2> {log}
 tar xf {output.td}/ncbi_taxdump.tar.gz -C {output.td}
 """
-
-
 # wget -O {output.acc2taxid} https://ftp.ncbi.nih.gov/pub/taxonomy/accession2taxid/prot.accession2taxid.gz
 
 
@@ -93,8 +91,6 @@ sed 's/_//' > {output.tax}
 
 
 # | src/filter_gtdb.R
-
-
 rule get_gtdb_genomes:
     output:
         "results/tmp/gtdb_proteins_aa_reps.tar.gz",

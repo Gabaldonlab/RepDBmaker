@@ -201,21 +201,13 @@ rule get_uniprot_genomes:
         """
 # exact match on the proteome ID column (field 1) to avoid prefix collisions
 taxid=$(awk -F'\\t' -v g="{wildcards.genome}" '$1==g {{print $2}}' {input.up})
-FTP_URL="https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/Eukaryota/{wildcards.genome}/{wildcards.genome}_$taxid.fasta.gz"
 REST_URL="https://rest.uniprot.org/uniparc/proteome/{wildcards.genome}/stream?compressed=true&format=fasta"
 
-echo "Attempting FTP download..."
-if wget -nc "$FTP_URL" -O "{output}"; then
-    echo "Successfully downloaded from FTP."
+if wget -nc "$REST_URL" -O "{output}"; then
+    echo "Successfully downloaded from REST API."
 else
-    echo "FTP download failed or file not found. Resorting to REST API..."
-    rm "{output}"
-    if wget -nc "$REST_URL" -O "{output}"; then
-        echo "Successfully downloaded from REST API."
-    else
-        echo "Error: Both FTP and REST API attempts failed for {wildcards.genome}."
-        exit 1
-    fi
+    echo "Error: REST API attempts failed for {wildcards.genome}."
+    exit 1
 fi
 """
 

@@ -26,17 +26,21 @@
 #   ERROR   lineage rank has wrong/missing prefix (d__,p__,c__,o__,f__,g__,s__)
 #   ERROR   lineage rank empty after its prefix
 #   ERROR   empty Fasta path
+#   ERROR   duplicate Fasta path
+#   ERROR   Fasta path missing or empty     (only with --check-fasta)
+#   ERROR   domain (d__) is not 'Eukaryota' (custom entries flow through the eukaryote path)
+#   ERROR   Species binomial does not match the s__ rank (mislabel / cross-organism row)
+#   ERROR   contrasting clades: the same taxon placed under different parents
+#           across custom rows (internal inconsistency; corrupts the taxdump)
 #   ERROR   lineage conflicts with the reference taxonomy: a known taxon placed
-#           under a parent that unambiguously differs in the eukaryotic taxonomy
-#           (only when a --reference / snakemake reference input is given)
-#   WARNING domain (d__) is not 'Eukaryota' (custom entries flow through the eukaryote path)
-#   WARNING Species binomial does not match the s__ rank (possible mislabel / cross-organism row)
-#   WARNING lineage conflict where the reference itself is ambiguous for that taxon
-#   WARNING duplicate Fasta path
-#   WARNING Fasta path missing or empty     (only with --check-fasta)
+#           under any parent it does not have there (only with a reference)
+#   WARNING new coherent lineage: a lineage that does not conflict but introduces
+#           taxa the reference does not know - listed so novel additions can be
+#           reviewed (the only warning; only with a reference)
 #
-# The conflict check needs a reference eukaryotic taxonomy built WITHOUT the
-# custom proteomes (mnemo<TAB>lineage), e.g. results/taxonomies/eukaryotes_taxonomy_ref.tsv.
+# The reference checks need a reference eukaryotic taxonomy built WITHOUT the
+# custom proteomes (mnemo<TAB>lineage), e.g.
+# results/taxonomies/eukaryotes_taxonomy_ref.tsv.
 #
 # Usage:
 #   Rscript workflow/scripts/check_custom_proteomes.R resources/custom_genomes_repdb.csv
@@ -98,8 +102,8 @@ check_lineage <- function(lineage, where) {
 }
 
 # Build, from a reference eukaryotic taxonomy (mnemo<TAB>lineage, no custom
-# entries), a per-rank map child -> unique parent name(s). Used to detect custom
-# lineages that place a known taxon under a conflicting parent.
+# entries): for each rank, the map child -> parent name(s), and the set of all
+# taxon names seen at that rank. Used to check custom lineages against it.
 parse_reference <- function(path) {
   ref <- suppressWarnings(suppressMessages(
     read_tsv(path, col_names = c("mnemo", "lineage"),
@@ -107,34 +111,77 @@ parse_reference <- function(path) {
   ref <- ref %>%
     separate(lineage, RANK_KEYS, sep = ";", fill = "right", extra = "drop") %>%
     mutate(across(all_of(RANK_KEYS), ~ trimws(gsub("^[a-z]__", "", .))))
-  maps <- vector("list", length(RANK_KEYS))
-  for (i in 2:length(RANK_KEYS)) {
-    d <- ref[, c(RANK_KEYS[i], RANK_KEYS[i - 1])]
-    names(d) <- c("child", "parent")
-    d <- unique(d[!is.na(d$child) & d$child != "" &
-                  !is.na(d$parent) & d$parent != "", ])
-    maps[[i]] <- split(d$parent, d$child)
+  parents <- vector("list", length(RANK_KEYS))
+  known <- vector("list", length(RANK_KEYS))
+  for (i in seq_along(RANK_KEYS)) {
+    col <- ref[[RANK_KEYS[i]]]
+    known[[i]] <- unique(col[!is.na(col) & col != ""])
+    if (i >= 2) {
+      d <- ref[, c(RANK_KEYS[i], RANK_KEYS[i - 1])]
+      names(d) <- c("child", "parent")
+      d <- unique(d[!is.na(d$child) & d$child != "" &
+                    !is.na(d$parent) & d$parent != "", ])
+      parents[[i]] <- split(d$parent, d$child)
+    }
   }
-  maps
+  list(parents = parents, known = known)
 }
 
 # Compare one custom lineage (7 rank values, prefixes stripped) against the
-# reference parent maps; flag a known taxon placed under a conflicting parent.
-check_conflicts <- function(values, where, maps) {
+# reference. Any known taxon placed under a parent it does not have in the
+# reference is a conflict -> ERROR. A lineage that has no such conflict but
+# introduces taxa the reference does not know is a "new coherent lineage" -> the
+# single WARNING, listing it so novel additions can be eyeballed.
+check_against_reference <- function(values, where, lineage, ref) {
+  conflict <- FALSE
+  new_taxa <- character(0)
   for (i in 2:length(values)) {
     child <- values[[i]]
     parent <- values[[i - 1]]
-    if (child == "" || parent == "") next
-    ref_parents <- maps[[i]][[child]]
-    if (is.null(ref_parents) || parent %in% ref_parents) next
-    msg <- sprintf(
-      "%s: %s '%s' is placed under %s '%s', but the eukaryotic taxonomy places it under '%s'",
-      where, RANK_LABELS[i], child, RANK_LABELS[i - 1], parent,
-      paste(ref_parents, collapse = "' / '"))
-    if (length(ref_parents) == 1) {
-      add_error(msg)
-    } else {
-      add_warning(paste(msg, "(reference is itself ambiguous here)"))
+    if (child == "") next
+    if (!(child %in% ref$known[[i]])) {
+      new_taxa <- c(new_taxa, sprintf("%s '%s'", RANK_LABELS[i], child))
+      next
+    }
+    ref_parents <- ref$parents[[i]][[child]]
+    if (parent != "" && !is.null(ref_parents) && !(parent %in% ref_parents)) {
+      add_error(sprintf(
+        "%s: %s '%s' is placed under %s '%s', but the eukaryotic taxonomy places it under '%s'",
+        where, RANK_LABELS[i], child, RANK_LABELS[i - 1], parent,
+        paste(ref_parents, collapse = "' / '")))
+      conflict <- TRUE
+    }
+  }
+  if (!conflict && length(new_taxa) > 0) {
+    add_warning(sprintf("%s: new coherent lineage - adds %s | %s",
+                        where, paste(new_taxa, collapse = ", "), lineage))
+  }
+}
+
+# Check the custom table for *internal* contradictions: the same taxon name
+# placed under different parents across custom rows (e.g. class 'Provora' under
+# phylum 'Diaphoretickes' in one row and 'Metamonada' in another). This corrupts
+# the taxdump and needs no reference, so it always runs.
+check_internal_conflicts <- function(rows) {
+  if (length(rows) < 2) return(invisible())
+  for (i in 2:length(RANK_LABELS)) {
+    m <- list()  # child -> named list(parent -> first "where" seen)
+    for (r in rows) {
+      child <- r$values[[i]]
+      parent <- r$values[[i - 1]]
+      if (child == "" || parent == "") next
+      if (is.null(m[[child]])) m[[child]] <- list()
+      if (is.null(m[[child]][[parent]])) m[[child]][[parent]] <- r$where
+    }
+    for (child in names(m)) {
+      parents <- names(m[[child]])
+      if (length(parents) > 1) {
+        detail <- paste(sprintf("'%s' (%s)", parents, unlist(m[[child]])),
+                        collapse = " vs ")
+        add_error(sprintf(
+          "custom table places %s '%s' under conflicting %s: %s",
+          RANK_LABELS[i], child, RANK_LABELS[i - 1], detail))
+      }
     }
   }
 }
@@ -179,11 +226,11 @@ df <- suppressWarnings(suppressMessages(
 df <- df[, !is.na(names(df)) & names(df) != "", drop = FALSE]
 
 # optional reference eukaryotic taxonomy for the conflict check
-parent_maps <- NULL
+ref_info <- NULL
 if (!is.null(reference_path) && file.exists(reference_path) &&
     file.info(reference_path)$size > 0) {
   message(sprintf("Checking lineages against reference taxonomy: %s", reference_path))
-  parent_maps <- parse_reference(reference_path)
+  ref_info <- parse_reference(reference_path)
 }
 
 missing <- setdiff(REQUIRED_COLUMNS, names(df))
@@ -214,6 +261,7 @@ if (length(missing) > 0) {
 # ---- per-row checks ----------------------------------------------------------
 seen_ids <- list()
 seen_fasta <- list()
+custom_lineages <- list()  # well-formed lineages, for the internal-conflict check
 n_rows <- 0L
 
 for (i in seq_len(nrow(df))) {
@@ -257,26 +305,27 @@ for (i in seq_len(nrow(df))) {
     values <- check_lineage(lineage, where)
   }
 
-  # soft checks on a well-formed lineage
+  # checks on a well-formed lineage
   if (!is.null(values)) {
     domain <- values[[1]]
     species_rank <- values[[length(values)]]
     if (domain != EXPECTED_DOMAIN) {
-      add_warning(sprintf(
+      add_error(sprintf(
         "%s: domain is '%s', expected '%s' - custom entries are treated as eukaryotes downstream",
         where, domain, EXPECTED_DOMAIN))
     }
     species <- get("Species")
     if (species != "" && binomial(species) != "" &&
         binomial(species) != binomial(species_rank)) {
-      add_warning(sprintf(
+      add_error(sprintf(
         "%s: Species '%s' does not match the s__ rank '%s' (possible mislabel or cross-organism row)",
         where, species, species_rank))
     }
-    # conflict against the broader eukaryotic taxonomy (if a reference was given)
-    if (!is.null(parent_maps)) {
-      check_conflicts(values, where, parent_maps)
+    # compare against the broader eukaryotic taxonomy (if a reference was given)
+    if (!is.null(ref_info)) {
+      check_against_reference(values, where, lineage, ref_info)
     }
+    custom_lineages[[length(custom_lineages) + 1]] <- list(where = where, values = values)
   }
 
   # Fasta path
@@ -285,15 +334,18 @@ for (i in seq_len(nrow(df))) {
     add_error(sprintf("%s: empty Fasta path", where))
   } else {
     if (!is.null(seen_fasta[[fasta]])) {
-      add_warning(sprintf("%s: duplicate Fasta path, first seen at line %d",
-                          where, seen_fasta[[fasta]]))
+      add_error(sprintf("%s: duplicate Fasta path, first seen at line %d",
+                        where, seen_fasta[[fasta]]))
     } else {
       seen_fasta[[fasta]] <- lineno
     }
     if (check_fasta && (!file.exists(fasta) || file.info(fasta)$size == 0)) {
-      add_warning(sprintf("%s: Fasta path missing or empty: %s", where, fasta))
+      add_error(sprintf("%s: Fasta path missing or empty: %s", where, fasta))
     }
   }
 }
+
+# internal contradictions across the custom rows (contrasting clades)
+check_internal_conflicts(custom_lineages)
 
 report_and_exit(n_rows)

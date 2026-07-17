@@ -72,6 +72,10 @@ rule all:
     input:
         # Downloadable files
         "results/meta/check_resources.txt",
+        # QC: taxonomy harmonization report + interactive Krona charts (normal
+        # mode only; the per-source taxonomies are not built from a frozen manifest)
+        *(["results/qc/harmonization_report.html",
+           "results/qc/krona/repdb_krona.html"] if not REPDB_MANIFEST else []),
         # Database files
         expand(
             "results/dbs/{db}/{db}_{dbtype}",
