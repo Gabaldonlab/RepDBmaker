@@ -1,6 +1,7 @@
 *Rproj
 .Rproj.user
 results/
+results_draft/
 logs/
 test/
 .snakemake*
