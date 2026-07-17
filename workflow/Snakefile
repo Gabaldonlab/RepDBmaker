@@ -93,7 +93,7 @@ rule all:
             db=get_decontaminated_database_targets(),
         ),
         expand(
-            "results/dbs/{db}/decontaminate/contaminants.txt",
+            "results/dbs/{db}/decontaminate/contaminants.tsv",
             db=get_decontaminated_database_targets(),
         ),
         expand(

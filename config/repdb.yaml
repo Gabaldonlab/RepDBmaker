@@ -13,13 +13,17 @@ dbs:
       # taxonomy-harmonization steps are skipped and only the listed IDs are
       # fetched. Freeze one from a full run with:
       #   cp results/taxonomies/repdb_taxonomy.tsv resources/repdb_v1.0.manifest.tsv
-      manifest: resources/repdb_v1.0.manifest.tsv
-      decontamination:
+      # manifest: resources/repdb_v1.0.manifest.tsv
+      decontaminate:
         # these parameters were optimized through a benchmark with ContScout
         identity: 0.9
         coverage: 0.5
         cov_mode: 3
         prop_euka: 0.5
+        # filter mode: 'soft' keeps flagged contaminants in the DB (default),
+        # 'hard' removes them. A contaminants.tsv (flagged proteins + cluster
+        # properties) is written in both modes.
+        filter: soft
         # size_cluster: 10
     # # Custom databases: uncomment and add your database entries
     # # Example:

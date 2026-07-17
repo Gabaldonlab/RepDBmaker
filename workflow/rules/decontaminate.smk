@@ -217,24 +217,51 @@ rule get_contaminants:
     input:
         rules.get_mixed_clusters.output.mixed,
     output:
-        "results/dbs/{db}/decontaminate/contaminants.txt",
+        # a data frame of the flagged proteins with their cluster properties
+        # (produced regardless of the hard/soft filter mode) and the plain ID
+        # list used by the filter step
+        df="results/dbs/{db}/decontaminate/contaminants.tsv",
+        ids="results/dbs/{db}/decontaminate/contaminants.txt",
     params:
         prop_euka=lambda wildcards: _get_decon_settings(wildcards.db).get(
             "prop_euka", 0.5
         ),
-        # flag_single_euk: set to false in the config to disable the always-on
-        # "single eukaryote in cluster" filter path (keeps legitimate
-        # bacterial-origin genes such as HGT / plastid / chromatophore proteins)
-        # flag_single_euk=lambda wildcards: _get_decon_settings(wildcards.db).get(
-        #     "flag_single_euk", True
-        # ),
-        # size_cluster=config["size_cluster"]
     conda:
         "../envs/R.yaml"
     group:
         "decontaminate"
     script:
         "../scripts/get_contaminants.R"
+
+
+rule decontaminate_db:
+    """Apply the contamination filter to the assembled DB FASTA.
+
+    filter: hard  -> remove the flagged (contaminant) sequences from the DB
+    filter: soft  -> keep them in the DB (they remain flagged in contaminants.tsv)
+    In both modes the contaminants data frame (rule get_contaminants) is produced.
+    """
+    input:
+        fa=get_db_fa,
+        contaminants=rules.get_contaminants.output.ids,
+    output:
+        "results/dbs/{db}/{db}_decontaminated.fa.gz",
+    params:
+        mode=lambda wildcards: _get_decon_settings(wildcards.db).get("filter", "soft"),
+    conda:
+        "../envs/utils.yaml"
+    group:
+        "decontaminate"
+    shell:
+        """
+if [ "{params.mode}" = "hard" ]; then
+    echo "hard filter: removing $(wc -l < {input.contaminants}) contaminant sequences"
+    seqkit grep -v -f {input.contaminants} {input.fa} -o {output}
+else
+    echo "soft filter: keeping all sequences (contaminants flagged in contaminants.tsv)"
+    cp {input.fa} {output}
+fi
+"""
 
 
 # rule diamond_noneuk:

@@ -1,36 +1,49 @@
 suppressPackageStartupMessages(library(tidyverse))
 
+# Identify eukaryotic sequences that look like contamination from mixed clusters
+# (a cluster containing eukaryotic and non-eukaryotic members). Two flag paths:
+#   single_euk    - a lone eukaryote in a mixed cluster (threshold-independent)
+#   low_euka_prop - eukaryotes are a minority of the cluster (<= prop_euka)
+# Writes, regardless of the downstream hard/soft filter mode:
+#   - a data frame of every flagged protein with its cluster properties (`df`)
+#   - the plain list of flagged protein IDs (`ids`), used by the filter step
+
 min_prop <- snakemake@params[["prop_euka"]]
-# max_size <- snakemake@params[["size_cluster"]]
 
-clusters <- read_delim(snakemake@input[[1]], 
-                       col_names = c("rep", "seq", "taxid", "tax"), delim = "\t")
+ranks <- c("k", "p", "c", "o", "f", "g", "s")
 
-euks <- clusters %>% 
-  filter(grepl("Eukaryota;", tax)) %>% 
-  separate(tax, c("k", "p", "c", "f", "o", "g", "s"), ";")
+clusters <- read_delim(snakemake@input[[1]],
+  col_names = c("rep", "seq", "taxid", "tax"), delim = "\t",
+  show_col_types = FALSE
+) %>%
+  separate(tax, ranks, sep = ";", fill = "right", remove = FALSE)
 
-single_euk <- euks %>% 
-  group_by(rep) %>% 
-  count() %>% 
-  filter(n==1)
-
-clusters_nonsingle <- filter(clusters, !rep %in% single_euk$rep)
-rm(clusters)
-
-df_euka_prop <- clusters_nonsingle %>% 
-  separate(tax, c("k", "p", "c", "f", "o", "g", "s"), ";") %>% 
+# per-cluster properties
+cluster_props <- clusters %>%
   group_by(rep) %>%
-  mutate(n_clu=n(), n_sps=n_distinct(s)) %>% 
-  group_by(rep, k, n_clu, n_sps) %>% 
-  count() %>% 
-  pivot_wider(names_from = k, values_from = n) %>% 
-  mutate(euka_prop = Eukaryota/n_clu) %>% 
-  ungroup()
+  summarise(
+    n_clu = n(),
+    n_euka = sum(k == "Eukaryota", na.rm = TRUE),
+    n_species = n_distinct(s),
+    euka_prop = n_euka / n_clu,
+    .groups = "drop"
+  )
 
-clusters_to_filter <- filter(df_euka_prop, euka_prop <= min_prop)$rep #  | n_clu<max_size
+single_reps <- cluster_props %>% filter(n_euka == 1) %>% pull(rep)
+low_prop_reps <- cluster_props %>% filter(n_euka > 1, euka_prop <= min_prop) %>% pull(rep)
 
-euks %>%
-  filter(rep %in% c(clusters_to_filter, single_euk$rep)) %>% 
-  pull(seq) %>% 
-  writeLines(snakemake@output[[1]])
+flagged <- bind_rows(
+  tibble(rep = single_reps, flag = "single_euk"),
+  tibble(rep = low_prop_reps, flag = "low_euka_prop")
+)
+
+# one row per flagged (eukaryotic) protein, with the cluster context
+contaminants <- clusters %>%
+  filter(k == "Eukaryota", rep %in% flagged$rep) %>%
+  left_join(flagged, by = "rep") %>%
+  left_join(cluster_props, by = "rep") %>%
+  select(seq, rep, flag, n_clu, n_euka, n_species, euka_prop, all_of(ranks)) %>%
+  arrange(rep, seq)
+
+write_tsv(contaminants, snakemake@output[["df"]])
+writeLines(contaminants$seq, snakemake@output[["ids"]])

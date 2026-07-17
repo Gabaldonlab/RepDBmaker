@@ -14,8 +14,18 @@ def get_db_fa(wildcards):
         return f"results/dbs/{wildcards.db}/{wildcards.db}_clustered.fa.gz"
     # unfortunately this + unify_fasta does not work as expected for
     # some mysterious reason...
-    # return f"results/dbs/{wildcards.db}/{wildcards.db}_raw.fa.gz" 
-    return f"results/dbs/{wildcards.db}/{wildcards.db}.fa.gz" 
+    # return f"results/dbs/{wildcards.db}/{wildcards.db}_raw.fa.gz"
+    return f"results/dbs/{wildcards.db}/{wildcards.db}.fa.gz"
+
+
+def get_final_db_fa(wildcards):
+    """FASTA the search indices are built from: the decontaminated one when the
+    db has a `decontaminate` block (rule decontaminate_db applies hard/soft),
+    otherwise the clustered/assembled FASTA (get_db_fa). `_is_db_decon` lives in
+    decontaminate.smk and is resolved at DAG time."""
+    if _is_db_decon(wildcards.db):
+        return f"results/dbs/{wildcards.db}/{wildcards.db}_decontaminated.fa.gz"
+    return get_db_fa(wildcards)
 
 
 mmseqs_ext = [
@@ -112,7 +122,7 @@ mmseqs createtaxdb {output.db} $TMPDIR --ncbi-tax-dump {input.taxdump} \
 
 rule make_blastdb:
     input:
-        fa=get_db_fa,
+        fa=get_final_db_fa,
         taxidmap=rules.make_db_map.output.noheadermap,
     output:
         "results/dbs/{db}/{db}_blastp",
@@ -133,7 +143,7 @@ touch {output}
 
 rule make_diamonddb:
     input:
-        fa=get_db_fa,
+        fa=get_final_db_fa,
         taxidmap="results/dbs/{db}/{db}.map",
         taxdump=rules.create_full_taxdump.output.full_taxdump,
     output:
@@ -159,7 +169,7 @@ touch {output}
 
 rule make_mmseqsdb:
     input:
-        fa=get_db_fa,
+        fa=get_final_db_fa,
         taxidmap="results/dbs/{db}/{db}_nohead.map",
         taxdump=rules.create_full_taxdump.output.full_taxdump,
     output:
