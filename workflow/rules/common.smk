@@ -49,10 +49,22 @@ rule available_proteomes:
         "../scripts/get_available_proteomes.R"
 
 
+import random
+
+
+def _test_subset(items):
+    """Test mode (config `test`): keep only TEST_N items per source so the whole
+    pipeline can be built end-to-end quickly. Seeded so the subset is stable
+    across runs. TEST_N == 0 (default) returns everything."""
+    if TEST_N and len(items) > TEST_N:
+        return sorted(random.Random(0).sample(items, TEST_N))
+    return items
+
+
 def custom_repdb(wildcards):
     with open(str(checkpoints.repdb_taxonomy.get(**wildcards).output)) as euka:
         genomes = [gn.strip().split("\t")[0] for gn in euka if gn.startswith("CUS")]
-    return expand("results/proteomes/cus/{i}.faa.gz", i=genomes)
+    return expand("results/proteomes/cus/{i}.faa.gz", i=_test_subset(genomes))
 
 
 # eheh so good at programming yeas
@@ -65,7 +77,7 @@ def custom_custom(wildcards):
 def eukprot_repdb(wildcards):
     with open(str(checkpoints.repdb_taxonomy.get(**wildcards).output)) as euka:
         genomes = [gn.strip().split("\t")[0] for gn in euka if gn.startswith("EP")]
-    return expand("results/proteomes/ep/{i}.faa.gz", i=genomes)
+    return expand("results/proteomes/ep/{i}.faa.gz", i=_test_subset(genomes))
 
 
 def eukprot_custom(wildcards):
@@ -77,7 +89,7 @@ def eukprot_custom(wildcards):
 def p10k_repdb(wildcards):
     with open(str(checkpoints.repdb_taxonomy.get(**wildcards).output)) as euka:
         genomes = [gn.strip().split("\t")[0] for gn in euka if gn.startswith("P10K")]
-    return expand("results/proteomes/p10k/{i}.faa.gz", i=genomes)
+    return expand("results/proteomes/p10k/{i}.faa.gz", i=_test_subset(genomes))
 
 
 def p10k_custom(wildcards):
@@ -89,7 +101,7 @@ def p10k_custom(wildcards):
 def uniprot_repdb(wildcards):
     with open(str(checkpoints.repdb_taxonomy.get(**wildcards).output)) as euka:
         genomes = [gn.strip().split("\t")[0] for gn in euka if gn.startswith("UP")]
-    return expand("results/proteomes/up/{i}.faa.gz", i=genomes)
+    return expand("results/proteomes/up/{i}.faa.gz", i=_test_subset(genomes))
 
 
 def uniprot_custom(wildcards):
@@ -105,7 +117,7 @@ def viruses_repdb(wildcards):
             for gn in virus
             if gn.strip().split("\t")[1] == "Viruses"
         ]
-    return expand("results/proteomes/virus/{i}.faa.gz", i=viruses)
+    return expand("results/proteomes/virus/{i}.faa.gz", i=_test_subset(viruses))
 
 
 def viruses_custom(wildcards):
@@ -125,7 +137,7 @@ def gtdb_repdb(wildcards):
             for gn in gtdb
             if gn.strip().split("\t")[1] in ["Bacteria", "Archaea"]
         ]
-    return expand("results/proteomes/gtdb/{i}.faa.gz", i=prokas)
+    return expand("results/proteomes/gtdb/{i}.faa.gz", i=_test_subset(prokas))
 
 
 def gtdb_custom(wildcards):

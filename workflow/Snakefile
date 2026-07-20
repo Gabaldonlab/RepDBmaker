@@ -1,6 +1,18 @@
 configfile: "config/repdb.yaml"
 
 
+# Test mode: subsample TEST_N genomes per source (gtdb, virus, uniprot, eukprot,
+# p10k, custom) so the whole pipeline can be run end-to-end quickly.
+#   test: false  -> off (default)   test: true -> 10 per source   test: <int> -> N
+_test = config.get("test", False)
+if _test in (False, None, 0):
+    TEST_N = 0
+elif _test is True:
+    TEST_N = 10
+else:
+    TEST_N = int(_test)
+
+
 valid_db_types = {"diamond", "blastp", "mmseqs"}
 if "dbs" in config and "type" in config["dbs"]:
     invalid = set(config["dbs"]["type"]) - valid_db_types

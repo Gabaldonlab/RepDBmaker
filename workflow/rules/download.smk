@@ -132,7 +132,7 @@ rule get_virus_genomes:
     output:
         meta="results/meta/refseq_virus_meta.txt",
         folder="results/tmp/refseq.zip",
-    log: 
+    log:
         "results/log/downloads/virus_summary.log"
     conda:
         "../envs/utils.yaml"
