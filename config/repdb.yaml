@@ -2,6 +2,7 @@
 versions:
   gtdb: "release226" # use latest to use most recent version
   unieuk: "0.0.1-pre_release"
+  EukProt: "3" # only available option as of now
   taxdump: "2026-07-01" # use latest to use most recent version
 
 # Test mode: build a tiny RepDB to run the whole pipeline end-to-end quickly by

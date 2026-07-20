@@ -54,14 +54,14 @@ rule concat_fasta_decont:
         repdb="results/dbs/repdb/repdb.fa.gz",
         other="results/dbs/{db}/{db}.fa.gz",
     output:
-        temp("results/{db}/decontaminate/{db}_decon.fa.gz"),
+        temp("results/dbs/{db}/decontaminate/{db}_decon.fa.gz"),
     localrule: True
     conda:
         "../envs/utils.yaml"
     shell:
         """
 if [ "{wildcards.db}" == "repdb" ]; then
-    ln -s {input.repdb} {output}
+    ln -s $(realpath {input.repdb}) {output}
 else
     cat {input.repdb} {input.other} > {output}
 fi
