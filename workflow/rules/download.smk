@@ -159,9 +159,10 @@ cut -f6 {input} | taxonkit reformat -I 1 -f "{{r}}\\t{{K}}\\t{{p}}" | cut -f2- |
 
 
 if config["versions"]["EukProt"] == "3":
-    eukprot_url = "https://ndownloader.figshare.com/files/34434377"
-    eukprot_meta_url = "https://ndownloader.figshare.com/files/34436246"
-    eukprot_busco_url = "https://evocellbio.com/SAGdb/images/EukProtv3.busco.output.txt"
+    eukprot_included = "https://ndownloader.figshare.com/files/34436246"
+    eukprot_excluded = "https://ndownloader.figshare.com/files/34436249"
+    eukprot_fasta = "https://ndownloader.figshare.com/files/34434377"
+    eukprot_busco = "https://evocellbio.com/SAGdb/images/EukProtv3.busco.output.txt"
 else:
     exit(f"EukProt version {config['versions']['EukProt']} not supported")
 
@@ -179,10 +180,10 @@ rule get_eukprot:
         "../envs/utils.yaml"
     shell:
         """
-wget -O - {eukprot_url} | sed 's/\\"//g' > {output.euk_excluded} 2> {log}
-wget -O - {eukprot_meta_url} | sed 's/\\"//g' > {output.euk_included} 2>> {log}
-wget --no-check-certificate -O {output.euk_busco} {eukprot_busco_url} 2>> {log}
-wget -O {output.euk_fa} {eukprot_url} 2>> {log}
+wget -O - {eukprot_excluded} | sed 's/\\"//g' > {output.euk_excluded} 2> {log}
+wget -O - {eukprot_included} | sed 's/\\"//g' > {output.euk_included} 2>> {log}
+wget --no-check-certificate -O {output.euk_busco} {eukprot_busco} 2>> {log}
+wget -O {output.euk_fa} {eukprot_fasta} 2>> {log}
 """
 
 
