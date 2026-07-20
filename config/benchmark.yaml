@@ -14,7 +14,10 @@ benchmark:
     clustrepdb:
       dmnd: "results/dbs/clustered_repdb/repdb_diamond"
       mmseqs: "results/dbs/clustered_repdb/repdb_mmseqs"
+    # phylodb:
+    #   fasta: "/gpfs/projects/bsc40/current/gmutti/DB/phyloDB/phylodb_1.076.pep.fa.gz"
+
   tax_annot: "resources/Cohen_2024/merged.fasta.transdecoder-estimated-taxonomy.LCA.phyloDB.within3percent.AddRef.RefSeq.out"
   source_seqs: "resources/Cohen_2024/merged.fasta.transdecoder.pep"
-  n_seqs: 500
+  n_seqs: 5000
   lca_mode: 3
