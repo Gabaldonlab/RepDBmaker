@@ -158,12 +158,12 @@ cut -f6 {input} | taxonkit reformat -I 1 -f "{{r}}\\t{{K}}\\t{{p}}" | cut -f2- |
 """
 
 
-if config["version"]["eukProt"] == "3":
+if config["versions"]["EukProt"] == "3":
     eukprot_url = "https://ndownloader.figshare.com/files/34434377"
     eukprot_meta_url = "https://ndownloader.figshare.com/files/34436246"
     eukprot_busco_url = "https://evocellbio.com/SAGdb/images/EukProtv3.busco.output.txt"
 else:
-    exit(f"EukProt version {config['version']['eukProt']} not supported")
+    exit(f"EukProt version {config['versions']['EukProt']} not supported")
 
 # Get EukProt metadata
 rule get_eukprot:
