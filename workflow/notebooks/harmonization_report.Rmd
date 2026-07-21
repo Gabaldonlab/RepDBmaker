@@ -17,12 +17,7 @@ knitr::opts_chunk$set(echo = TRUE, cache = FALSE, warning = FALSE, message = FAL
 ```
 
 RepDBmaker harmonizes the UniProt (NCBI) and P10K (native) eukaryotic taxonomies
-into the UniEuk/EukProt framework. Sources built on different frameworks cannot
-be made uniform by harmonization alone (reviewer 1, methodological concern #3):
-this report makes the translation explicit — its coverage, where it re-labels a
-rank, genus changes, and proteomes mapped to **more than one** UniEuk lineage
-(*ambiguous* harmonization). It also writes machine-readable tables to the
-output directory.
+into the UniEuk/EukProt framework.
 
 ```{r libs}
 suppressPackageStartupMessages(library(tidyverse))
@@ -51,23 +46,26 @@ P <- if (exists("snakemake")) {
     outdir         = dirname(snakemake@output[["html"]])
   )
 } else {
-  params
+    list(
+    eukprot        = "results/taxonomies/eukprot_taxonomy.tsv",
+    uniprot_ncbi   = "results/taxonomies/uniprot_ncbi_taxonomy.tsv",
+    uniprot_unieuk = "results/taxonomies/uniprot_eukprot_taxonomy.tsv",
+    p10k_orig      = "results/meta/p10k_lineage.tsv",
+    p10k_unieuk    = "results/taxonomies/p10k_taxonomy.tsv",
+    custom         = "results/taxonomies/custom_taxonomy.tsv",
+    outdir         = "results/qc/"
+  )
 }
 
 outdir <- rp(P$outdir)
 dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
 ```
 
-# EukProt backbone tree with UniProt & P10K tips
+# Eukaryotic taxonomic backbone tree
 
 The tree is the taxonomic backbone (`domain/phylum/class/order/family`) with
-EukProt as the scaffold. **Branches are coloured by origin** — grey where the
-clade is in the EukProt backbone, and by the database that introduces it
-otherwise (so you can see which branches each db *adds*). The outer **stacked
-bar** (ggtreeExtra) gives, per family, the number of proteomes contributed by
-each database. Harmonization maps every UniProt/P10K proteome onto an existing
-EukProt family, so those two add no new branches; custom proteomes (if supplied)
-do add new branches.
+EukProt as the scaffold. **Branches are coloured by database origin**. The outer **stacked bar plot** gives the number of proteomes per family contributed by
+each database.
 
 ```{r backbone_tree, fig.width=8, fig.height=8, dpi=450}
 bb_ranks <- c("d", "p", "c", "o", "f")
@@ -172,10 +170,9 @@ up_cross <- up %>%
   arrange(desc(n))
 ```
 
-`r n_distinct(uni$mnemo)` UniProt proteomes; **`r length(up_ambig)`** are
+There are `r n_distinct(uni$mnemo)` UniProt proteomes; **`r length(up_ambig)`** are
 *ambiguous* (mapped to more than one UniEuk lineage). Because NCBI and UniEuk
-use "phylum" for different concepts, most phylum labels are re-assigned — the
-crosstab below is the actual translation map.
+use "phylum" for different concepts, most phylum labels are re-assigned.
 
 ```{r uniprot-rankchange, fig.width=5, fig.height=3}
 up %>%
@@ -193,7 +190,9 @@ up %>%
   scale_y_continuous(expand = expansion(c(0, 0.02)))
 ```
 
-```{r uniprot-crosstab, fig.width=5, fig.height=8}
+These are the cross-translation from NCBI phyla to UniEuk phyla. As UniProt is very rich in opisthokonta most of these groups end up in the phylum Amorphea.
+
+```{r uniprot-crosstab, fig.width=4, fig.height=8}
 up_cross %>%
   # filter(ncbi_phylum %in% top_phyla, ncbi_phylum != "", unieuk_phylum != "") %>%
   ggplot(aes(unieuk_phylum, fct_rev(ncbi_phylum), fill = n)) +
@@ -204,7 +203,8 @@ up_cross %>%
     x = "UniEuk phylum (supergroup)", y = "NCBI phylum",
     title = "NCBI phylum -> UniEuk phylum"
   ) +
-  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+  theme(axis.text.x = element_text(angle = 30, hjust = 1),
+        legend.position = "none")
 ```
 
 ```{r uniprot-ambig-table}
@@ -252,7 +252,7 @@ p10_cross <- p10 %>%
   arrange(desc(n))
 ```
 
-`r n_distinct(p10k_harm$mnemo)` P10K proteomes; **`r length(p10_ambig)`**
+There are `r n_distinct(p10k_harm$mnemo)` P10K proteomes; **`r length(p10_ambig)`**
 ambiguous, **`r sum(p10$genus_changed)`** with a changed genus. P10K's native
 NCBI-based supergroups are translated to UniEuk phyla as follows:
 
@@ -269,6 +269,36 @@ p10_cross %>%
   ) +
   theme(axis.text.x = element_text(angle = 30, hjust = 1))
 ```
+
+Here you can see those with changed genuses, most of them should be from unassigned species/genuses.
+
+```{r p10k-changed-genus}
+p10 %>% 
+  filter(genus_changed) %>% 
+  select(mnemo, unieuk_lineage, orig_lineage) %>% 
+  knitr::kable(caption = "P10k Changed genuses")
+```
+
+# Unassigned
+
+Here you can see those species that have some missing data in their lineage. Most of them tend to be from P10K.
+
+```{r unassigned-clades}
+all_tax %>% 
+  filter(grepl("unassigned", lineage)) %>% 
+  select(-lineage) %>% 
+  pivot_longer(cols = !c(mnemo, source)) %>% 
+  filter(grepl("unassigned", value)) %>% 
+  group_by(name, value, source) %>% 
+  count() %>% 
+  ggplot(aes(n, value, fill=source)) + 
+  geom_col(position="stack") +
+  facet_grid(~name) + 
+  scale_x_continuous(expand = expansion(mult = c(0,0.05))) + 
+  scale_fill_manual(values = color_dbs) + 
+  labs(y="", fill="db")
+```
+
 
 # Summary and outputs
 

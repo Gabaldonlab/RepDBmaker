@@ -76,17 +76,19 @@ bench_df <- list.files("results/benchmarks/comparison/", full.names = T) %>%
     db_source = gsub("clust", "", db)
   )
 
-bench_df %>% 
-  filter(!grepl("clust", db)) %>% 
-  select(db, method, s, max_rss_gb) %>% 
-  pivot_wider(names_from = db, values_from = c(s, max_rss_gb)) %>% 
-  mutate(s_ratio = s_nr/s_repdb,
-         max_rss_gb_ratio = max_rss_gb_nr/max_rss_gb_repdb)
+bench_df %>%
+  filter(!grepl("clust", db)) %>%
+  select(db, method, s, max_rss_gb) %>%
+  pivot_wider(names_from = db, values_from = c(s, max_rss_gb)) %>%
+  mutate(
+    s_ratio = s_nr / s_repdb,
+    max_rss_gb_ratio = max_rss_gb_nr / max_rss_gb_repdb
+  )
 
 plot_bench <- bench_df %>%
   ggplot(aes(max_rss_gb, `h:m:s`, fill = db, group = db_source)) +
   geom_line(color = "grey60") +
-  geom_point(pch = 21, size = 3) +
+  geom_point(pch = 21, size = 2) +
   facet_grid(~method, scales = "free") +
   labs(x = "Mem (GB)", y = "Runtime") +
   scale_fill_manual(values = color_benchdbs)
@@ -103,14 +105,14 @@ plot_dmnd <- df_dmnd %>%
   ggplot(aes(value, color = db)) +
   geom_density() +
   facet_grid(. ~ name, scales = "free_y") +
-  labs(x="") +
+  labs(x = "") +
   scale_color_manual(values = color_benchdbs) +
   theme(legend.position = "none")
 ```
 
 ```{r mmseqs}
 order_ranks <- c(
-  "no rank", "cellular root", "domain", "kingdom", "phylum",
+  "no rank", "cellular root", "domain", "kingdom", "phylum", "division",
   "class", "clade", "order", "family", "genus", "species", "strain"
 )
 
@@ -144,19 +146,6 @@ df_mmseqs <- df_cohen %>%
     db = factor(db, levels = c("Cohen2024", names(color_benchdbs))),
     rank = factor(rank, levels = rev(order_ranks))
   )
-
-# how many unclassified and at which rank?
-# what is division in Choen?
-# maybe there are too many discrepancies?
-(plot_unk <- df_mmseqs %>%
-  filter(classification != "unclassified", !is.na(classification)) %>%
-  count(db, rank) %>%
-  ggplot(aes(n, db, fill = db, alpha = rank)) +
-  geom_bar(stat = "identity") +
-  scale_fill_manual(values = c("Cohen2024" = "firebrick", color_benchdbs)) +
-  scale_x_continuous(expand = c(0, 0.05)) +
-  labs(x = "N", y = "")
-)
 ```
 
 ```{r mmseqs-kraken}
@@ -212,11 +201,10 @@ plot_kings <- krk %>%
     axis.text.x = element_text(angle = 45, hjust = 1)
     # legend.position = "none"
   )
-
 ```
 ```{r fullplot, fig.width=6.5, fig.height=4.5}
 plot_comp <- ((plot_bench / plot_dmnd) | plot_kings) +
- plot_layout(widths = c(2, 1), guides = "collect")
+  plot_layout(widths = c(2, 1), guides = "collect")
 
 saveRDS(plot_comp, "results/plots/comparison.Rds")
 # ggsave("results/plots/comparison.pdf", plot_comp, width = 6.5, height = 4.5)
@@ -224,40 +212,157 @@ saveRDS(plot_comp, "results/plots/comparison.Rds")
 
 
 ```{r alluvial}
-df_classification <- df_mmseqs %>% 
-  filter(!grepl("clust", db)) %>% 
-  mutate(classification = replace_na(classification, "unclassified")) %>% 
-  select(seq, classification, db) %>% 
+df_classification <- df_mmseqs %>%
+  filter(!grepl("clust", db)) %>%
+  mutate(classification = replace_na(classification, "unclassified")) %>%
+  select(seq, classification, db) %>%
   # filter(db=="Cohen2024") %>% count(classification) %>% View
-  pivot_wider(names_from = db, values_from = classification) 
+  pivot_wider(names_from = db, values_from = classification)
 
+df_classification %>% 
+  filter(repdb=="unclassified")
 
-p_alluvial <- df_classification %>% 
-  filter(if_any(everything(), ~ .x == "unclassified")) %>% 
-  # filter(grepl("Dinophy", Cohen2024)) %>% 
+p_alluvial <- df_classification %>%
+  # filter(if_any(everything(), ~ .x == "unclassified")) %>%
+  filter(repdb == "unclassified" | nr == "unclassified") %>%
+  # filter(grepl("Dinophy", Cohen2024)) %>%
   ggplot(aes(axis1 = nr, axis2 = Cohen2024, axis3 = repdb)) +
   geom_alluvium(
-    # aes(fill=Cohen2024), 
-                # color="grey70", 
-                fill="grey80"
-                ) +
-  geom_stratum(aes(fill=after_stat(stratum)=="unclassified") 
-               # fill="grey"
-               ) +
-  geom_text(stat = "stratum", 
-            aes(label = after_stat(stratum)), 
-            color="blue",
-            size=1) +
+    # aes(fill=Cohen2024),
+    # color="grey70",
+    fill = "grey80"
+  ) +
+  geom_stratum(
+    aes(fill = after_stat(stratum) == "unclassified")
+    # fill="grey"
+  ) +
+  geom_text(
+    stat = "stratum",
+    aes(label = after_stat(stratum)),
+    color = "black",
+    size = 1
+  ) +
   scale_x_discrete(limits = c("nr", "Cohen2024", "repdb"), expand = c(.1, .1)) +
-  labs(y = "N") + 
-  theme(legend.position = "none") + 
+  labs(y = "N") +
+  theme(legend.position = "none") +
   scale_fill_manual(values = c("grey", "black"))
 
-ggsave("results/plots/alluvial.pdf", p_alluvial, width = 5, height = 7)
+p_alluvial
+# ggsave("results/plots/alluvial.pdf", p_alluvial, width = 5, height = 7)
 ```
 
 
-# TODOs
 
+## What is in the gap? (taxonomic composition of RepDB misses)
+ 
+Because the gap set is defined on transcripts the *reference* classified, we can
+describe it entirely in the reference's own labels — no harmonization needed. If
+the gaps pile up in a clade RepDB filtered out (comment #2), it shows here.
+ 
+```{r gap-composition}
+cohen_lineage <- df_cohen %>%
+  mutate(
+    seq = transcript_name,
+    domain = str_split_i(full_classification, ";\\s*", 1),
+    supergroup = str_split_i(full_classification, ";\\s*", 2),
+    division = str_split_i(full_classification, ";\\s*", 3)
+  )
+
+
+
+df_classification %>% 
+  filter(Cohen2024!="unclassified") %>% 
+  mutate(repdb = repdb!="unclassified") %>% 
+  left_join(cohen_lineage, by = "seq") %>% 
+  mutate(supergroup = replace_na(supergroup, "unassigned")) %>%
+  count(repdb, domain, supergroup) %>%
+  ggplot(aes(n, fct_reorder(supergroup, n), fill = repdb)) +
+  geom_col(position = "stack") +
+  facet_grid(domain ~ ., scales = "free_y", space = "free_y") +
+  scale_x_continuous(expand = expansion(c(0,0.02))) + 
+  scale_fill_manual(values = c("grey40" , color_benchdbs[["repdb"]])) +
+  labs(x = "N transcripts", y = "", fill = "Classified in RepDB") +
+  theme(legend.position = "bottom", strip.text = element_text(size=4))
+
+
+```
+ 
+## Why is a transcript unclassified? (no homolog vs no LCA)
+ 
+Splitting RepDB's "unclassified" into *no DIAMOND hit at all* vs *hit but the LCA
+did not assign a taxon* separates a genuine coverage gap (missing sequences, ties
+to comment #2) from a framework/LCA artifact. Note the two engines use different
+thresholds, so DIAMOND presence is a homology *proxy*.
+ 
+```{r unclassified-reason}
+hit_seqs <- df_dmnd %>%
+  filter(!grepl("clust", db)) %>%
+  distinct(db = as.character(db), qseqid) %>%
+  mutate(has_hit = TRUE)
+
+df_dmnd %>% 
+  group_by(qseqid, db) %>% 
+  summarise(n=n(), mn_ident = mean(pident)) %>% 
+  ungroup() %>% 
+  full_join(filter(df_mmseqs, db!="Cohen2024"), 
+            by = c("qseqid"="seq", "db")) %>% 
+  mutate(unclassified = classification=="unclassified", 
+         no_hit = is.na(n)) %>% 
+  count(db, unclassified, no_hit) %>% 
+  filter(unclassified) %>% 
+  ggplot(aes(db, n, fill=no_hit)) + 
+  geom_col()
+```
+ 
+## Resolution: how deep does each DB classify?
+ 
+Coverage isn't everything — a DB that classifies everything to "domain" isn't
+useful. This is the specificity side of the trade-off.
+ 
+```{r resolution-profile}
+(plot_res <- df_mmseqs %>%
+  filter(!grepl("^clust", db), !is.na(rank)) %>%
+  count(db, rank) %>%
+  group_by(db) %>% mutate(prop = n / sum(n)) %>% ungroup() %>%
+  ggplot(aes(prop, rank, fill = db)) +
+  geom_col(position = "dodge") +
+   facet_wrap(~db, scales = "free_y") +
+  scale_fill_manual(values = c("Cohen2024" = "firebrick", color_benchdbs)) +
+  labs(x = "Proportion of classified transcripts", 
+       y = "Assigned rank", fill = "")) +
+  theme(legend.position = "none")
+```
+ 
+## broad-agreement
+ 
+```{r agreement}
+df_classification %>% 
+  count(repdb, Cohen2024) %>% 
+  filter(n>2) %>% 
+  ggplot(aes(repdb, Cohen2024, fill=n))  + 
+  geom_tile() + 
+  scale_fill_viridis_c() + 
+  theme(axis.text.x = element_text(angle=60, hjust=1))
+
+df_classification %>% 
+  count(repdb, nr) %>% 
+  filter(n>2) %>% 
+  ggplot(aes(repdb, nr, fill=n))  + 
+  geom_tile() + 
+  scale_fill_viridis_c() + 
+  theme(axis.text.x = element_text(angle=60, hjust=1))
+
+df_classification %>% 
+  count(Cohen2024, nr) %>% 
+  filter(n>1) %>% 
+  ggplot(aes(Cohen2024, nr, fill=n))  + 
+  geom_tile() + 
+  scale_fill_viridis_c() + 
+  theme(axis.text.x = element_text(angle=60, hjust=1))
+```
+
+# TODOs
+ 
+* Analyze taxonomic distribution of DIAMOND results.
 * Analyze taxonomic distribution of diamond results?
 * Compare mmseqs easy-taxonomy results
