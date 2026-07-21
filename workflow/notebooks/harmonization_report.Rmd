@@ -140,7 +140,9 @@ p <- ggtree(td, layout = "circular",
   scale_fill_manual(values = color_dbs, name = "proteomes (db)") + 
   theme(legend.position = "none",
         plot.margin       = margin(t = -40, r = -40,
-                                   b = -40, l = -40, unit = "pt") ) 
+                                   b = -40, l = -40, unit = "pt") )
+
+p
 ```
 
 # UniProt: NCBI → UniEuk
