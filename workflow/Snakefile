@@ -12,6 +12,15 @@ elif _test is True:
 else:
     TEST_N = int(_test)
 
+if TEST_N:
+    logger.warning(
+        "=" * 72
+        + f"\n⚠  TEST MODE ACTIVE: keeping only {TEST_N} genomes per source.\n"
+        + "   The resulting RepDB is a small end-to-end smoke test, NOT a full\n"
+        + "   database. Set `test: false` (or remove it) in the config for a real run.\n"
+        + "=" * 72
+    )
+
 
 valid_db_types = {"diamond", "blastp", "mmseqs"}
 if "dbs" in config and "type" in config["dbs"]:
@@ -32,6 +41,16 @@ include: "rules/db.smk"
 include: "rules/cluster.smk"
 include: "rules/stats.smk"
 include: "rules/decontaminate.smk"
+
+
+# Test mode subsamples the fetched sequences, so it cannot coexist with
+# reproduce/manifest mode (which must fetch the exact frozen composition).
+if TEST_N and REPDB_MANIFEST:
+    raise ValueError(
+        "Test mode (`test`) and reproduce mode (`dbs.build.repdb.manifest`) are "
+        "mutually exclusive: test mode would subsample the frozen manifest instead "
+        "of reproducing it. Disable one of them."
+    )
 
 
 onstart:

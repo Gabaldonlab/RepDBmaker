@@ -257,9 +257,12 @@ rule decontaminate_db:
 if [ "{params.mode}" = "hard" ]; then
     echo "hard filter: removing $(wc -l < {input.contaminants}) contaminant sequences"
     seqkit grep -v -f {input.contaminants} {input.fa} -o {output}
-else
+elif [ "{params.mode}" = "soft" ]; then
     echo "soft filter: keeping all sequences (contaminants flagged in contaminants.tsv)"
     cp {input.fa} {output}
+else
+    echo "ERROR: invalid decontaminate.filter '{params.mode}' (expected 'soft' or 'hard')" >&2
+    exit 1
 fi
 """
 

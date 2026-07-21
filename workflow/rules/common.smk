@@ -1,3 +1,6 @@
+import random
+
+
 rule online_resources:
     input:
         rules.download_taxdump.output,
@@ -49,13 +52,11 @@ rule available_proteomes:
         "../scripts/get_available_proteomes.R"
 
 
-import random
-
-
 def _test_subset(items):
     """Test mode (config `test`): keep only TEST_N items per source so the whole
-    pipeline can be built end-to-end quickly. Seeded so the subset is stable
-    across runs. TEST_N == 0 (default) returns everything."""
+    pipeline can be built end-to-end quickly. The seed is fixed (0) so the subset
+    is identical across runs and across the different rules that call this on the
+    same source. TEST_N == 0 (default) returns everything."""
     if TEST_N and len(items) > TEST_N:
         return sorted(random.Random(0).sample(items, TEST_N))
     return items

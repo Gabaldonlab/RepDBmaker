@@ -7,8 +7,12 @@ versions:
 
 # Test mode: build a tiny RepDB to run the whole pipeline end-to-end quickly by
 # keeping only a few genomes per source (gtdb, virus, uniprot, eukprot, p10k,
-# custom). false = off; true = 10 per source; an integer = that many per source.
-test: 15
+# custom). false = off (default); true = 10 per source; an integer = that many
+# per source. NOTE: this only subsamples the per-genome sequence fetching/DB
+# build; the large downloads (GTDB tarball, EukProt archive, virus zip) and
+# the QC/Krona reports still run on the full sources. Mutually exclusive with
+# reproduce/manifest mode.
+test: false
 
 dbs:
   type: ["diamond", "mmseqs"]  # Available database types: diamond, mmseqs, blastp
