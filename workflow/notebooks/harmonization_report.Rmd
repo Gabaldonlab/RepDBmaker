@@ -64,8 +64,7 @@ dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
 # Eukaryotic taxonomic backbone tree
 
 The tree is the taxonomic backbone (`domain/phylum/class/order/family`) with
-EukProt as the scaffold. **Branches are coloured by database origin**. The outer **stacked bar plot** gives the number of proteomes per family contributed by
-each database.
+EukProt as the scaffold. **Branches are coloured by database origin**. The outer **stacked bar plot** gives the number of proteomes per family contributed by each database (scaled with squared root).
 
 ```{r backbone_tree, fig.width=6, fig.height=6, dpi=450}
 bb_ranks <- c("d", "p", "c", "o", "f")
@@ -129,11 +128,19 @@ p <- ggtree(td, layout = "circular",
   scale_colour_manual(values = origin_pal, name = "branch origin") +
   geom_tiplab(size = 1, colour = "grey20", 
               offset = 0, hjust = 0) +
+  geom_fruit_list(
   geom_fruit(
     data = fam_long, geom = geom_col,
     mapping = aes(y = f, x = sqrt(n), fill = source),
     orientation = "y", pwidth = 0.4, offset = .4
-  ) +
+  ),
+  geom_fruit(
+    data = group_by(fam_long, f) %>% 
+      summarise(sum_n=sum(n), bar_tip = sum(sqrt(n))), 
+    geom = geom_text,
+    mapping = aes(y = f, label = sum_n, x=bar_tip),
+    size = 1.2, offset = .4, pwidth = 0.4
+  )) +
   # labs(subtitle = "EukProt taxonomic tree with log-scaled # of proteomes by DB") +
   geom_nodelab(size = 1.1, colour = "grey20", 
                hjust = 1.1, vjust=-0.5) +
