@@ -105,7 +105,13 @@ manual <- tribble(
   "Chordata",         "Amorphea", "Opisthokonta", "Metazoa", "Vertebrata",
   "Cephalochordata",  "Amorphea", "Opisthokonta", "Metazoa", "Cephalochordata",
   "Tunicata",         "Amorphea", "Opisthokonta", "Metazoa", "Urochordata",
-  "Urochordata",      "Amorphea", "Opisthokonta", "Metazoa", "Urochordata"
+  "Urochordata",      "Amorphea", "Opisthokonta", "Metazoa", "Urochordata",
+  "Bryozoa",          "Amorphea", "Opisthokonta", "Metazoa", "Bryozoa",
+  "Hemichordata",     "Amorphea", "Opisthokonta", "Metazoa", "Hemichordata",
+  "Orthonectida",     "Amorphea", "Opisthokonta", "Metazoa", "Orthonectida",
+  "Priapulida",       "Amorphea", "Opisthokonta", "Metazoa", "Priapulida",
+  "Tardigrada",       "Amorphea", "Opisthokonta", "Metazoa", "Tardigrada",
+  "Rotifera",         "Amorphea", "Opisthokonta", "Metazoa", "Rotifera"
 )
 
 # priority when a clade name appears in several sources: manual > EukProt genus
@@ -132,13 +138,25 @@ last_token <- function(s) {
   t <- strsplit(s, ";")[[1]]
   gsub("^[A-Z]_", "", t[length(t)])
 }
+# P10K uses UniEuk placeholder tokens for unranked lineages, e.g.
+# "G_Pelagophyceae_XXX" = an unassigned genus within Pelagophyceae (the trailing
+# "_X..." run grows with depth). That is not a real genus called "Pelagophyceae"
+# (which is a class), so report it as "unassigned_<clade>". Returns NA when the
+# genus token is a real genus or absent (UniProt lineages carry no "G_" tokens).
+placeholder_genus <- function(s) {
+  g <- grep("^G_", strsplit(s, ";")[[1]], value = TRUE)
+  if (!length(g) || !grepl("_X+$", g[1])) return(NA_character_)
+  paste0("unassigned_", norm(sub("_X+$", "", sub("^G_", "", g[1]))))
+}
 
 prot <- lineage %>%
   transmute(mnemo = X1, taxid = X2, raw = X3) %>%
   mutate(
     # P10K carries the species in column 2 (non-numeric); UniProt a numeric taxid
     species = if_else(grepl("\\D", taxid), taxid, map_chr(raw, last_token)),
-    genus   = word(species, 1),
+    # a placeholder genus token wins over word(species, 1) so the clade name is
+    # not mistaken for a real genus
+    genus   = coalesce(map_chr(raw, placeholder_genus), word(species, 1)),
     cand    = map(raw, ~ rev(clean_tokens(.x)))  # specific -> general
   )
 

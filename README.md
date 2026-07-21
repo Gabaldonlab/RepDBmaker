@@ -34,20 +34,23 @@ Optional features include taxonomic clustering and contamination filtering.
 
 ### Choosing an executor
 
-By default this repository ships with a cluster profile in
-`workflow/profiles/default/config.yaml` that targets the authors' SLURM
-cluster (Barcelona Supercomputing Center). Snakemake auto-loads this profile,
-so on any other system you must either edit it or bypass it.
+The workflow ships with several profiles under `workflow/profiles/`. Each cluster
+profile names the executor plugin it needs and marks the site-specific values
+with `CHANGE_ME`; run any of them with
+`snakemake --workflow-profile workflow/profiles/<name> -j <max_parallel_jobs>`.
 
-- **SLURM users**: install the executor plugin
-  (`pip install snakemake-executor-plugin-slurm`) and edit
-  `workflow/profiles/default/config.yaml` to set your own `slurm_partition`,
-  `slurm_account`, `slurm_extra` and `conda-prefix` (the default `conda-prefix`
-  points at a `/gpfs` path you cannot write to).
-- **Other schedulers or a single machine**: bypass the bundled profile with
-  `--workflow-profile none` and select an executor, e.g. run locally with
-  `-e local` (or set `executor: local` in your own profile). PBS/LSF users can
-  install the matching Snakemake executor plugin.
+- `default/` — **local execution, auto-loaded.** Snakemake picks this up
+  automatically, so `snakemake -j <cores>` just runs on the current machine with
+  no extra flags and no scheduler.
+- `slurm/` — **generic SLURM** (`pip install snakemake-executor-plugin-slurm`).
+- `lsf/` — **generic LSF** (`pip install snakemake-executor-plugin-lsf`); uses
+  the dedicated LSF plugin with native `lsf_queue` / `lsf_project` resources. These are untested profiles so they may require some tailoring.
+- `bsc/` — the authors' Barcelona Supercomputing Center profile, kept for
+  reference and reproducibility.
+
+The heavy rules request up to 112 cores; on smaller nodes, lower the values in
+the profile's `set-threads` block (a commented example is included in each
+cluster profile).
 
 If using `--sdm conda`, Snakemake will automatically create the following environments from `workflow/envs/`:
 
@@ -61,6 +64,11 @@ Create all environments without executing the pipeline:
 ```bash
 snakemake --conda-create-envs-only
 ```
+
+These `.yaml` specs are intentionally loose (minimum bounds only where a feature
+requires it) so a fresh install resolves against current packages. To instead
+reproduce the **exact** package builds used for the published RepDB v1.0, use the
+explicit lockfiles in `workflow/envs/locks/` (see [Reproducibility](#reproducibility)).
 
 ### Docker
 
@@ -81,6 +89,76 @@ docker run --rm -v $(pwd):/app/data \
   gmuttiirb/repdbmaker@sha256:5531958bdfe5... \
   snakemake --cores 2 --directory /app/data -n
 ```
+
+The image builds its conda environments from the pinned lockfiles (see below),
+so it reproduces the RepDB v1.0 toolchain rather than re-solving at build time.
+
+## Reproducibility
+
+RepDBmaker supports reproducibility at three levels; pick the one your use case
+needs.
+
+| Level | What is fixed | How |
+|-------|---------------|-----|
+| **Parameter** | thresholds, which DBs, which subsets | the config file |
+| **Composition** | *which* proteomes and their taxonomy | a frozen manifest (below) |
+| **Artifact** | exact tool builds and, ideally, the exact sequences | conda lockfiles + Docker digest + a Zenodo deposit of the FASTA |
+
+### Pinned tool versions (conda lockfiles)
+
+`workflow/envs/locks/*.linux-64.lock` are explicit conda lockfiles (exact builds
++ md5, `linux-64`) captured from the environments that produced RepDB v1.0. They
+pin tools **and** transitive dependencies; the Docker image is built from them.
+To recreate one directly:
+
+```bash
+conda create --prefix ./repdb_homology --file workflow/envs/locks/homology.linux-64.lock
+```
+
+The database-building environment pins **DIAMOND 2.1.13**, **MMseqs2 18.8cc5c**,
+and **BLAST 2.17.0** (the manuscript versions); the separate benchmark
+environment uses **DIAMOND 2.1.21**, which is needed only to read a BLAST
+database and is not used to build RepDB.
+
+### Pinned source databases
+
+External sources drift, so pin the snapshots in `config/repdb.yaml`:
+
+- `gtdb_version` — a specific release (e.g. `release226`), never `latest`.
+- `unieuk_version` — the exported UniEuk taxonomy version.
+
+For sources without stable versioned hosting (NCBI taxdump, UniProt release,
+RefSeq virus catalog, P10K), record the retrieval date alongside your run.
+
+### Reproducing an exact composition (frozen manifest)
+
+Because several sources are unversioned, running the full selection a year later
+yields a *different* set of proteomes. To rebuild the exact composition of a
+previous run (e.g. RepDB v1.0) regardless of source drift, freeze its manifest —
+`results/taxonomies/repdb_taxonomy.tsv`, a table of each selected ID plus its
+seven taxonomic ranks — and feed it back in:
+
+```bash
+# 1. after a full run, freeze the selected composition
+cp results/taxonomies/repdb_taxonomy.tsv resources/repdb_v1.0.manifest.tsv
+
+# 2. point the config at it
+#    dbs:
+#      build:
+#        repdb:
+#          manifest: resources/repdb_v1.0.manifest.tsv
+
+# 3. rebuild — selection and taxonomy harmonization are skipped; only the
+#    frozen IDs are fetched and assembled
+snakemake -j 14
+```
+
+With `manifest` set, the `repdb_taxonomy` selection and the whole taxonomy
+harmonization step are bypassed, so the build no longer depends on the live
+metadata that decides *which* proteomes are included. The sequences themselves
+are still fetched from their sources, so this guarantees composition-level (not
+bitwise) reproducibility; deposit the assembled FASTA on Zenodo for a bitwise
+artifact.
 
 ## Quick start
 
@@ -124,16 +202,18 @@ Example configuration:
 ```yaml
 # Database configuration
 dbs:
-  gtdb_version: "latest"  # use release220, release226, etc.
+  gtdb_version: "release226"  # use latest to use most recent version
+  unieuk_version: "0.0.1-pre_release"
   type: ["diamond", "mmseqs"]  # Available types: diamond, mmseqs, blastp
   build:
     repdb:
-      decontamination:
+      decontaminate:
         # optimized settings for ContScout benchmarking
         identity: 0.9
         coverage: 0.5
         cov_mode: 3
         prop_euka: 0.5
+        filter: soft          # 'hard' removes contaminants; 'soft' flags but keeps them
     custom:
       clusteredrepdb:
         ids: resources/repdb.ids
@@ -149,6 +229,51 @@ files:
 ```
 
 Using this config file will allow the creation of RepDB and its clustered version.
+
+## Eukaryote downsampling
+
+The public eukaryotic sources (UniProt, EukProt, P10K) are heavily redundant, so
+before RepDB is built they are thinned by `workflow/scripts/filter_tax.R`. The
+three steps are configurable under `dbs.build.repdb.downsample`. The whole block
+is optional — omit it, or any individual key, to use the defaults shown below.
+
+```yaml
+dbs:
+  build:
+    repdb:
+      downsample:
+        # keep only the most complete proteome per species (identical 7-rank
+        # lineage). false = keep every proteome.
+        remove_duplicated_species: true
+        # within each genus, keep at most this many (most complete) species.
+        top_n_genuses: 3
+        # cap over-represented clades: within each named clade keep at most `n`
+        # (most complete) genomes per family; genomes with no resolved family are
+        # all kept. `rank` is one of phylum / class / order / family.
+        reduce_abundant_clades:
+          - {rank: class,  taxon: Opisthokonta, n: 20}
+          - {rank: order,  taxon: Ciliophora,   n: 20}
+          - {rank: family, taxon: Embryophyta,  n: 20}
+```
+
+| Key | Default | Effect |
+|-----|---------|--------|
+| `remove_duplicated_species` | `true` | Collapse identical species to their single most complete proteome. |
+| `top_n_genuses` | `3` | Max number of (most complete) species kept per genus. Genomes with no genus are all kept. |
+| `reduce_abundant_clades` | Opisthokonta / Ciliophora / Embryophyta at 20 | Per-family cap applied inside each listed clade. Set to `[]` to disable. |
+
+Notes:
+
+- `reduce_abundant_clades` is a list, so you can add, edit or remove clades
+  freely (e.g. `- {rank: phylum, taxon: Chordata, n: 10}`). Within each clade the
+  cap is applied **per family**.
+- Genomes with no resolved family (an `unassigned_*` family from the taxonomy
+  harmonization, or a blank one) are **not** capped — you cannot know where they
+  belong taxonomically — so they are all kept.
+- Genomes forced in via `clades_to_keep` and all custom (`CUS…`) proteomes bypass
+  the downsampling and are always retained.
+- A `rank` outside `phylum/class/order/family`, or an entry missing `rank`,
+  `taxon` or `n`, aborts the run immediately with a clear error.
 
 ## Custom databases
 
@@ -179,6 +304,103 @@ dbs:
 
 The workflow will create `results/dbs/<custom_db>/` and its associated outputs.
 
+## Adding custom proteomes
+
+Beyond the public sources, you can inject your own proteomes through the
+tab-separated table pointed to by `files.new_genomes` (default
+`resources/custom_genomes_repdb.csv`). Each row is **one whole proteome from a
+single organism**. The pipeline relies on the following schema, and rows that
+violate it are silently dropped or mislabelled rather than rejected — so validate
+the table first (see below).
+
+| Column      | Required | Description |
+|-------------|----------|-------------|
+| `ID`        | yes      | Unique mnemonic, **must start with `CUS`** (e.g. `CUS00001`). Non-`CUS` IDs are silently discarded by `filter_tax.R`. |
+| `Species`   | yes      | Organism name (a single organism per row). |
+| `Data_type` | yes      | `genome`, `transcriptome`, … (informational). |
+| `Fasta`     | yes      | Path to the proteome FASTA for this entry. |
+| `Lineage`   | yes      | Exactly **7 `;`-separated ranks** with the prefixes `d__ p__ c__ o__ f__ g__ s__`. |
+| `Paper`, `Source`, `Note` | no | Free-text provenance. |
+
+Example row (`Lineage` shown on its own line):
+
+```
+CUS00003  Agogonia voluta  transcriptome  /path/CUS00003.fa  <lineage>  <doi>  <url>  <note>
+```
+```
+Lineage = d__Eukaryota;p__Discoba;c__Jakobida;o__Jakobida;f__Ophirinina;g__Agogonia;s__Agogonia voluta
+```
+
+Notes on the implicit specification (made explicit here):
+
+- **Single organism, whole proteome.** A row packing proteins from several
+  organisms is accepted but all its sequences inherit the row's nominal lineage.
+- **Lineages must be internally consistent.** The same taxon name may not appear
+  under two different parents across your custom rows (e.g. class `Provora` under
+  phylum `Diaphoretickes` in one row and `Metamonada` in another) — such
+  contradictions corrupt the taxdump and are rejected.
+- **Lineage is checked against the broader eukaryotic taxonomy.** A lineage that
+  places a *known* taxon under a conflicting parent (e.g. a genus that the public
+  sources put in a different family, or a yeast tagged `d__Bacteria;…`) is
+  rejected. Genuinely novel taxa (absent from the public sources) are accepted.
+- **All seven ranks must be present and non-empty** (`d__` through `s__`), because
+  the taxdump is built by splitting the lineage into exactly these columns.
+
+### Validating the table
+
+The pipeline validates the table automatically (rule `validate_custom_proteomes`,
+gating `custom_taxonomy` and `get_custom_genomes`): a run **aborts** before any
+custom lineage is propagated if the table has errors. In a normal run the check
+is done against a reference eukaryotic taxonomy built from the public sources
+only (`eukaryotes_taxonomy_ref.tsv`, i.e. without the custom proteomes), so the
+set of eukaryotes to compare against follows the taxon sampling in your config.
+You can also run it standalone:
+
+```bash
+Rscript workflow/scripts/check_custom_proteomes.R resources/custom_genomes_repdb.csv
+# check lineage conflicts against a reference eukaryotic taxonomy:
+Rscript workflow/scripts/check_custom_proteomes.R <table> --reference results/taxonomies/eukaryotes_taxonomy_ref.tsv
+# add --check-fasta to also verify each Fasta path exists and is non-empty
+```
+
+It **errors** (non-zero exit) on: missing columns, non-`CUS` IDs, duplicate IDs,
+lineages that are not exactly seven correctly prefixed non-empty ranks, empty or
+duplicate Fasta paths, a non-`Eukaryota` domain, a `Species` that does not match
+the `s__` rank (mislabel / cross-organism row), internal contradictions (a taxon
+under conflicting parents across custom rows), and any lineage that conflicts
+with the reference taxonomy (a known taxon placed under a parent it does not have
+there). The **only warning** lists the *new coherent lineages* — custom entries
+that do not conflict but introduce taxa the reference does not know — so the
+novel taxonomy being added can be reviewed before it propagates.
+
+## Decontamination
+
+Adding a `decontaminate:` block under a database enables contamination filtering.
+Sequences are clustered across domains; a eukaryotic protein is **flagged** as a
+likely contaminant when it is a lone eukaryote in a mixed cluster
+(`single_euk`) or when eukaryotes are a minority of its cluster
+(`low_euka_prop`, i.e. `euka_prop <= prop_euka`).
+
+```yaml
+decontaminate:
+  identity: 0.9
+  coverage: 0.5
+  cov_mode: 3
+  prop_euka: 0.5
+  filter: soft   # 'soft' (default) or 'hard'
+```
+
+- **`filter: soft`** — flagged sequences are **kept** in the database.
+- **`filter: hard`** — flagged sequences are **removed** from the database
+  (the search indices are built from `<db>_decontaminated.fa.gz`).
+
+**In both modes** a data frame `results/dbs/<db>/decontaminate/contaminants.tsv`
+is written, listing every flagged protein with its cluster context: the flag
+path, cluster size (`n_clu`), number of eukaryotes (`n_euka`), species count
+(`n_species`), `euka_prop`, and the protein's taxonomy. This lets you audit what
+was flagged — e.g. whether removals hit HGT candidates or plastid-derived genes —
+regardless of the filter mode.
+
 ## Outputs
 
 Key output locations:
@@ -193,12 +415,57 @@ Key output locations:
 - `results/dbs/<db>/cluster/cluster_params.yaml` — clustering settings
 - `results/dbs/<db>/cluster/<db>_clustered.fa.gz` — clustered FASTA output
 - `results/dbs/<db>/decontaminate/decontaminate_params.yaml` — decontamination settings
-- `results/dbs/<db>/decontaminate/contaminants.txt` — decontamination candidates
+- `results/dbs/<db>/decontaminate/contaminants.tsv` — flagged proteins + cluster properties (see [Decontamination](#decontamination))
+- `results/dbs/<db>/decontaminate/contaminants.txt` — flagged protein IDs (used by the hard filter)
+- `results/dbs/<db>/<db>_decontaminated.fa.gz` — the FASTA the indices are built from (contaminants removed under `filter: hard`)
 - `results/dbs/<db>/decontaminate/pair_counts.tsv` — cluster pair counts
 - `results/stats/` — database and clustering statistics
 - `results/meta/check_resources.txt` — validation of downloaded assets
 - `results/taxonomies/` — taxonomy annotations and selection outputs
 - `results/taxdump/repdb_taxdump/` — taxonkit taxdump for combined genomes
+
+## Quality control
+
+RepDBmaker emits QC outputs so the heterogeneity of the integrated sources is
+visible rather than implicit.
+
+**Taxonomy harmonization report** — rule `taxonomy_harmonization_report` renders
+`workflow/notebooks/harmonization_report.Rmd` (produced by default in a normal
+run). It compares each proteome's original taxonomy with the UniEuk-harmonized
+one and characterizes the cross-framework translation. Outputs to `results/qc/`:
+
+- `harmonization_report.html` — the rendered report: the EukProt backbone tree
+  (branches coloured by which database adds them), the summary table, the
+  original→UniEuk crosstab heatmaps (NCBI phyla / P10K supergroups → UniEuk
+  phyla), and the **ambiguous** proteomes (mapped to more than one UniEuk
+  lineage). The notebook also writes these machine-readable tables alongside it:
+- `harmonization_uniprot.tsv` / `harmonization_p10k.tsv` — full per-proteome
+  before/after detail.
+- `harmonization_ambiguous.tsv` — proteomes whose harmonization is contradictory
+  (same proteome, two UniEuk lineages), which should be reviewed.
+
+You can also render it standalone from the repo root:
+
+```bash
+Rscript -e 'rmarkdown::render("workflow/notebooks/harmonization_report.Rmd")'
+```
+
+**Explorer notebook** — `workflow/notebooks/explore_available_proteomes.Rmd` is a
+boilerplate for exploring `results/meta/available_proteomes.tsv` (counts by
+source/domain/data-type, taxonomic composition, completeness) and for exporting a
+selection as an `ids` file for a custom database. Render it from the repo root:
+
+```bash
+Rscript -e 'rmarkdown::render("workflow/notebooks/explore_available_proteomes.Rmd")'
+```
+
+**Interactive Krona charts** — rule `krona_plot` builds
+`results/qc/krona/repdb_krona.html`, a single interactive [Krona](https://github.com/marbl/Krona)
+chart with one **selectable dataset per database/taxonomy**: GTDB, NCBI Virus,
+EukProt, custom, and — for UniProt and P10K — **both** the source schema and the
+UniEuk-harmonized version (`uniprot_ncbi` vs `uniprot_unieuk`, `p10k_native` vs
+`p10k_unieuk`). Switching between a source's two datasets shows the harmonization
+directly. Open the HTML in a browser.
 
 ## Utilities
 
@@ -223,19 +490,13 @@ A results notebook is available at `workflow/notebooks/comparison.Rmd`.
 If you use RepDBmaker or RepDB, please cite:
 
 > Mutti G. and Gabaldón T. Automated reconstruction of reproducible protein
-> databases with RepDBmaker. *Protein Science* (2026). [manuscript 4947634]
+> databases with RepDBmaker. *Protein Science* (2026). 
 > DOI: <add DOI on acceptance>
-
-```bibtex
-@article{mutti_repdbmaker,
-  author  = {Mutti, Giacomo and Gabald\'on, Toni},
-  title   = {Automated reconstruction of reproducible protein databases with RepDBmaker},
-  journal = {Protein Science},
-  year    = {2026},
-  note    = {TODO: add volume, pages and DOI on acceptance}
-}
-```
 
 ## License
 
 See the `LICENSE` file for license details.
+
+## TODOs
+
+* Add snakemake-executor-plugin-slurm to installation instructions

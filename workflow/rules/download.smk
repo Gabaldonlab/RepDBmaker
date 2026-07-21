@@ -236,10 +236,12 @@ rule get_p10k:
 echo -e "p10k_id\\tbiosample\\tsource\\tspecies" > {output.sample}
 wget https://ngdc.cncb.ac.cn/p10k/api/sample/list -O - | \
 jq -r  '.data[] | [.sampleId, .biosampleId, .source, .species] | @tsv' >> {output.sample} 2> {log}
+sed -i 's/\\xc2\\xa0/ /g' {output.sample}
 
 echo -e "p10k_id\\tssu_identity\\tlineage" > {output.tax}
 wget https://ngdc.cncb.ac.cn/p10k/api/taxonomy/list -O - | \
 jq -r  '.data[] | [.sampleId, .ssuIdentity, .referableLineage] | @tsv' >> {output.tax} 2>> {log}
+sed -i 's/\\xc2\\xa0/ /g' {output.tax}
 
 echo -e "p10k_id\\tassembly_id\\tsize\\tn_contigs\\tN50\\tcompleteness\\tn_genes\\tCDS_completeness\\tannotation_level" > {output.assembly}
 wget https://ngdc.cncb.ac.cn/p10k/api/assembly/list -O - | \
@@ -258,7 +260,7 @@ csvtk uniq -t -f1 > {output.meta}
 
 awk 'NR>1' {output.meta} | cut -f1,4,6 > {output.lineage}
 """
-
+# sed 's/\xc2\xa0/ /g' is because there was a weird Non-Breaking Space in the Euplotes aediculatus line... 
 
 # echo -e "id\\tp10k_id\\tbiosample\\tsource\\tspecies\\tlineage\
 # \\tassembly_id\\tsize\\tn_contigs\\tN50\\tcompleteness\\t\

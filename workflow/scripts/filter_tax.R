@@ -9,6 +9,10 @@ names(color_db) <- c("uniprot", "eukprot", "p10k", "custom")
 
 # ---- selection parameters (configurable via dbs.build.repdb.select) ---------
 remove_duplicated_species <- as.logical(snakemake@params[["remove_duplicated_species"]])
+if (is.na(remove_duplicated_species)) {
+    print("remove_duplicated_species parameter is not a logical value in config.yaml")
+    quit(status = 1)
+}
 top_n_genuses <- as.integer(snakemake@params[["top_n_genuses"]])
 # clade-reduction table, passed as three parallel vectors
 reduce_ranks <- as.character(snakemake@params[["reduce_ranks"]])
@@ -72,9 +76,11 @@ df <- og %>%
                           grepl("^P10", mnemo) ~ "p10k",
                           grepl("^CUS", mnemo) ~ "custom"),
            db = factor(db, levels = c("custom","uniprot", "eukprot", "p10k")))  %>% 
-    left_join(rbind(up_stats, ep_stats, p10k_stats_red)) %>% 
-    filter(!mnemo %in% p10k_unannotated) %>% 
-    filter(!mnemo %in% exclude)
+    left_join(rbind(up_stats, ep_stats, p10k_stats_red)) %>%
+    filter(!mnemo %in% p10k_unannotated) %>%
+    filter(!mnemo %in% exclude) %>%
+    ungroup()   # drop the rowwise() above; downstream steps operate columnwise
+                # (and the clade-reduction mutate needs df ungrouped)
 
 
 
@@ -108,7 +114,7 @@ raw <- df %>%
     facet_grid(p~., scales = "free", space = "free") +
     geom_bar(stat = "identity", position = "dodge") + 
     geom_text(aes(label=n), hjust=0, position = position_dodge(width = .9), size=2) +
-    scale_fill_manual(values=color_db)
+    scale_fill_manual(values=color_db, drop = FALSE)
 
 
 # first of all remove duplicated species (most complete proteome per species)
@@ -131,7 +137,7 @@ no_dup_sps <- df %>%
     facet_grid(p~., scales = "free", space = "free") +
     geom_bar(stat = "identity", position = "dodge") + 
     geom_text(aes(label=n), hjust=0, position = position_dodge(width = .9), size=2) +
-    scale_fill_manual(values=color_db) +
+    scale_fill_manual(values=color_db, drop = FALSE) +
     theme(axis.text.y = element_blank())
 
 # genuses that have more than one representative get only the most complete
@@ -151,11 +157,11 @@ no_dup_genus <- df %>%
     group_by(p, c, db) %>% 
     count() %>% 
     ggplot(aes(n, c, fill=db)) +
-    labs(subtitle = paste("1 x genus:", nrow(df))) +
+    labs(subtitle = paste(top_n_genuses," x genus:", nrow(df))) +
     facet_grid(p~., scales = "free", space = "free") +
     geom_bar(stat = "identity", position = "dodge") + 
     geom_text(aes(label=n), hjust=0, position = position_dodge(width = .9), size=2) +
-    scale_fill_manual(values=color_db) +
+    scale_fill_manual(values=color_db, drop = FALSE) +
     theme(axis.text.y = element_blank())
 
 # reduce over-represented clades: for each configured (rank, taxon, n), keep at
@@ -199,7 +205,7 @@ final <- df %>%
     facet_grid(p~., scales = "free", space = "free") +
     geom_bar(stat = "identity", position = "dodge") + 
     geom_text(aes(label=n), hjust=0, position = position_dodge(width = .9), size=2) +
-    scale_fill_manual(values=color_db) +
+    scale_fill_manual(values=color_db, drop = FALSE) +
     theme(axis.text.y = element_blank())
 
 

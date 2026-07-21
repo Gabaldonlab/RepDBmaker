@@ -34,14 +34,14 @@ dbs:
       downsample:
         # keep only the most complete proteome per species (identical 7-rank
         # lineage). Set to false to keep every proteome.
-        remove_duplicated_species: true
-        # within each genus, keep at most this many (most complete) species.
+        remove_duplicated_species: true # logical: true/false 
+        # within each genus, keep at most this many species (most complete).
         top_n_genuses: 3
         # cap over-represented clades: within each named clade keep at most `n`
-        # (most complete) genomes per family; genomes with no family are all
+        # (most complete) genomes per FAMILY; genomes with no family are all
         # kept. `rank` is one of phylum / class / order / family. Edit, add or
-        # remove entries freely (an empty list disables clade reduction).
-        reduce_abundant_clades:
+        # remove entries freely. Set to False if no reduction is desired.
+        reduce_abundant_clades: # false
           - {rank: class,  taxon: Opisthokonta, n: 20}
           - {rank: order,  taxon: Ciliophora,   n: 20}
           - {rank: family, taxon: Embryophyta,  n: 20}
