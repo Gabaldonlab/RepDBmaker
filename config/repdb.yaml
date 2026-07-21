@@ -27,6 +27,24 @@ dbs:
       # fetched. Freeze one from a full run with:
       #   cp results/taxonomies/repdb_taxonomy.tsv resources/repdb_v1.0.manifest.tsv
       # manifest: resources/repdb_v1.0.manifest.tsv
+      #
+      # Eukaryote downsampling: how the redundant public eukaryotic proteomes
+      # are thinned before building RepDB. The whole `downsample` block is
+      # optional; omit it (or any key) to fall back to the defaults shown here.
+      downsample:
+        # keep only the most complete proteome per species (identical 7-rank
+        # lineage). Set to false to keep every proteome.
+        remove_duplicated_species: true
+        # within each genus, keep at most this many (most complete) species.
+        top_n_genuses: 3
+        # cap over-represented clades: within each named clade keep at most `n`
+        # (most complete) genomes per family; genomes with no family are all
+        # kept. `rank` is one of phylum / class / order / family. Edit, add or
+        # remove entries freely (an empty list disables clade reduction).
+        reduce_abundant_clades:
+          - {rank: class,  taxon: Opisthokonta, n: 20}
+          - {rank: order,  taxon: Ciliophora,   n: 20}
+          - {rank: family, taxon: Embryophyta,  n: 20}
       decontaminate:
         # these parameters were optimized through a benchmark with ContScout
         identity: 0.9

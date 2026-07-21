@@ -99,8 +99,13 @@ manual <- tribble(
   "Oomycota",      "Diaphoretickes", "Stramenopiles", "other_Gyrista", "Peronosporomycetes",
   "Heterolobosea", "Discoba",        "Heterolobosea", "Heterolobosea", "Heterolobosea",
   # Chordata in the (NCBI) lineage is the unambiguous animal signal, so resolve
-  # the "Vertebrata" homonym (animal subphylum vs red-alga genus) in its favour
-  "Chordata",      "Amorphea",       "Opisthokonta",  "Metazoa",       "Vertebrata"
+  # the "Vertebrata" homonym (animal subphylum vs red-alga genus) in its favour.
+  # The non-vertebrate chordate subphyla are more specific candidates (they sit
+  # below Chordata in the lineage) so they win the family over "Vertebrata".
+  "Chordata",         "Amorphea", "Opisthokonta", "Metazoa", "Vertebrata",
+  "Cephalochordata",  "Amorphea", "Opisthokonta", "Metazoa", "Cephalochordata",
+  "Tunicata",         "Amorphea", "Opisthokonta", "Metazoa", "Urochordata",
+  "Urochordata",      "Amorphea", "Opisthokonta", "Metazoa", "Urochordata"
 )
 
 # priority when a clade name appears in several sources: manual > EukProt genus

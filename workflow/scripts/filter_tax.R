@@ -7,6 +7,37 @@ theme_set(theme_classic())
 color_db <- c("#c93f55", "#eacc62", "#469d76", "#924099")
 names(color_db) <- c("uniprot", "eukprot", "p10k", "custom")
 
+# ---- selection parameters (configurable via dbs.build.repdb.select) ---------
+remove_duplicated_species <- as.logical(snakemake@params[["remove_duplicated_species"]])
+top_n_genuses <- as.integer(snakemake@params[["top_n_genuses"]])
+# clade-reduction table, passed as three parallel vectors
+reduce_ranks <- as.character(snakemake@params[["reduce_ranks"]])
+reduce_taxa <- as.character(snakemake@params[["reduce_taxa"]])
+reduce_ns <- as.integer(snakemake@params[["reduce_ns"]])
+
+# full rank names (or single-letter codes) -> the lineage columns used below
+rank_to_col <- c(phylum = "p", class = "c", order = "o", family = "f",
+                 p = "p", c = "c", o = "o", f = "f")
+
+# Keep the top-n most complete genomes per family within a clade defined by
+# (rank == taxon). Genomes with no resolved family are all kept and are NOT
+# subject to the cap: get_tax.R fills unplaced families as "unassigned_<ancestor>"
+# (and eukprot/custom may still leave them empty), and we don't know where they
+# belong taxonomically, so it makes no sense to rank them within a family.
+reduce_clade <- function(data, rank, taxon, n) {
+  col <- rank_to_col[[tolower(rank)]]
+  if (is.null(col)) {
+    stop(paste0("reduce_abundant_clades: unknown rank '", rank, "'"))
+  }
+  clade <- data[data[[col]] == taxon, ]
+  no_family <- clade$f == "" | grepl("^unassigned_", clade$f)
+  capped <- clade[!no_family, ] %>%
+    group_by(k, p, c, o, f) %>%
+    slice_max(completeness, n = n, with_ties = FALSE) %>%
+    ungroup()
+  bind_rows(capped, clade[no_family, ])
+}
+
 exclude <- readLines(snakemake@input[["exclude"]])
 
 up_stats <- read_delim(snakemake@input[["up_stats"]], show_col_types = F) %>% 
@@ -80,13 +111,16 @@ raw <- df %>%
     scale_fill_manual(values=color_db)
 
 
-# first of all remove duplicated species
-df <- df %>% 
-    group_by(k, p, c, o, f, g, s) %>% 
-    slice_max(completeness, n = 1, with_ties = FALSE) %>% 
-  ungroup()
-
-paste("After removing duplicated species there are", nrow(df), "genomes")
+# first of all remove duplicated species (most complete proteome per species)
+if (isTRUE(remove_duplicated_species)) {
+    df <- df %>%
+        group_by(k, p, c, o, f, g, s) %>%
+        slice_max(completeness, n = 1, with_ties = FALSE) %>%
+      ungroup()
+    paste("After removing duplicated species there are", nrow(df), "genomes")
+} else {
+    paste("Keeping duplicated species:", nrow(df), "genomes")
+}
 
 
 no_dup_sps <- df %>%
@@ -101,16 +135,16 @@ no_dup_sps <- df %>%
     theme(axis.text.y = element_blank())
 
 # genuses that have more than one representative get only the most complete
-reduced_df <- df %>% 
+reduced_df <- df %>%
   group_by(k, p, c, o, f, g) %>%
-  slice_max(completeness, n = 3, with_ties = FALSE) %>% 
+  slice_max(completeness, n = top_n_genuses, with_ties = FALSE) %>%
   ungroup()
 # those with no genus are all included
 no_genus <- filter(df, g=="")
 
 df <- filter(df, mnemo %in% union(reduced_df$mnemo, no_genus$mnemo))
 
-paste("After keeping max 3 species per genus there are", nrow(df), "genomes")
+paste("After keeping max", top_n_genuses, "species per genus there are", nrow(df), "genomes")
 
 no_dup_genus <- df %>%
     # filter(db!="p10k" | o != "Ciliophora") %>% 
@@ -124,44 +158,44 @@ no_dup_genus <- df %>%
     scale_fill_manual(values=color_db) +
     theme(axis.text.y = element_blank())
 
-opi <- df %>% 
-  filter(c=="Opisthokonta") %>% 
-  group_by(k, p, c, o, f) %>% 
-  slice_max(n = 20, completeness, with_ties = FALSE)
+# reduce over-represented clades: for each configured (rank, taxon, n), keep at
+# most n genomes per family within that clade (see reduce_clade() above).
+if (length(reduce_ranks) > 0) {
+    # rows belonging to at least one configured clade (to drop before adding
+    # back the reduced sets); computed on df before any filtering.
+    in_clade <- Reduce(`|`, Map(function(rank, taxon) {
+        df[[rank_to_col[[tolower(rank)]]]] == taxon
+    }, reduce_ranks, reduce_taxa), rep(FALSE, nrow(df)))
 
-opi_nofamily <- filter(df, c=="Opisthokonta", f=="") %>% 
-    filter(!mnemo %in% opi$mnemo)
+    reduced <- bind_rows(Map(function(rank, taxon, n) {
+        reduce_clade(df, rank, taxon, n)
+    }, reduce_ranks, reduce_taxa, reduce_ns))
 
-ciliates <- df %>% 
-  filter(o=="Ciliophora") %>% 
-  group_by(k, p, c, o, f) %>% 
-  # arrange(desc(completeness)) %>% 
-  slice_max(completeness, n = 20, with_ties=FALSE)
-ciliates_nofamily <- filter(df, o=="Ciliophora", f=="") %>% 
-    filter(!mnemo %in% ciliates$mnemo)
+    df <- df %>%
+        mutate(.in_clade = in_clade) %>%
+        filter(!mnemo %in% manual_keep$mnemo, !.in_clade) %>%
+        select(-.in_clade) %>%
+        bind_rows(reduced, manual_keep, custom_keep) %>%
+        distinct(mnemo, .keep_all = TRUE)
 
-embryo <- filter(df, f=="Embryophyta") %>%
-  group_by(k, p, c, o, f) %>% 
-  slice_max(completeness, n = 20, with_ties=FALSE)
-
-df <- df %>% 
-    filter(!mnemo %in% manual_keep$mnemo) %>% 
-    filter(c!="Opisthokonta", o!="Ciliophora", f!="Embryophyta") %>% 
-    rbind(opi, opi_nofamily) %>% 
-    rbind(ciliates, ciliates_nofamily) %>% 
-    rbind(embryo) %>% 
-    rbind(manual_keep) %>% 
-    rbind(custom_keep)
-
-paste("After keeping 20 genomes per family of ciliates, opisthokonta and embryophytes and using all the genomes from", 
-      paste(to_keep, collapse=","), "there are", nrow(df), "genomes")
+    reduce_labels <- paste0(reduce_taxa, " (", reduce_ranks, ", n=", reduce_ns, ")")
+    paste("After reducing", paste(reduce_labels, collapse = "; "),
+          "and using all the genomes from", paste(to_keep, collapse = ","),
+          "there are", nrow(df), "genomes")
+} else {
+    df <- df %>%
+        filter(!mnemo %in% manual_keep$mnemo) %>%
+        bind_rows(manual_keep, custom_keep) %>%
+        distinct(mnemo, .keep_all = TRUE)
+    paste("No clade reduction; there are", nrow(df), "genomes")
+}
 
 final <- df %>%
     # filter(db!="p10k" | o != "Ciliophora") %>% 
     group_by(p, c, db) %>% 
     count() %>% 
     ggplot(aes(n, c, fill=db)) +
-    labs(subtitle = paste("20 x opi and ciliates family:", nrow(df))) +
+    labs(subtitle = paste("Reduced clades:", nrow(df))) +
     facet_grid(p~., scales = "free", space = "free") +
     geom_bar(stat = "identity", position = "dodge") + 
     geom_text(aes(label=n), hjust=0, position = position_dodge(width = .9), size=2) +

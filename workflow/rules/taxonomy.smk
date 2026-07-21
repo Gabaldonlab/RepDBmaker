@@ -20,6 +20,53 @@ def repdb_manifest():
 REPDB_MANIFEST = repdb_manifest()
 
 
+# ---- eukaryote downsampling parameters (dbs.build.repdb.downsample) ----------
+# Defaults reproduce the original hard-coded RepDB behaviour so an absent
+# `downsample:` block changes nothing.
+DEFAULT_REDUCE_CLADES = [
+    {"rank": "class", "taxon": "Opisthokonta", "n": 20},
+    {"rank": "order", "taxon": "Ciliophora", "n": 20},
+    {"rank": "family", "taxon": "Embryophyta", "n": 20},
+]
+_VALID_REDUCE_RANKS = {"phylum", "class", "order", "family"}
+
+
+def _repdb_downsample():
+    repdb = (config.get("dbs", {}).get("build", {}) or {}).get("repdb") or {}
+    downsample = repdb.get("downsample") if isinstance(repdb, dict) else None
+    return downsample if isinstance(downsample, dict) else {}
+
+
+def _downsample_param(key, default):
+    val = _repdb_downsample().get(key)
+    return default if val is None else val
+
+
+def _reduce_clades():
+    """Validated list of {rank, taxon, n} clade-reduction entries."""
+    entries = _downsample_param("reduce_abundant_clades", DEFAULT_REDUCE_CLADES) or []
+    if not isinstance(entries, list):
+        raise ValueError(
+            "dbs.build.repdb.select.reduce_abundant_clades must be a list of "
+            "{rank, taxon, n} entries."
+        )
+    for e in entries:
+        if not isinstance(e, dict) or {"rank", "taxon", "n"} - e.keys():
+            raise ValueError(
+                f"Invalid reduce_abundant_clades entry {e!r}: needs rank, taxon, n."
+            )
+        if str(e["rank"]).lower() not in _VALID_REDUCE_RANKS:
+            raise ValueError(
+                f"reduce_abundant_clades: rank '{e['rank']}' must be one of "
+                f"{sorted(_VALID_REDUCE_RANKS)}."
+            )
+    return entries
+
+
+# validate the downsampling config once, at parse time
+_reduce_clades()
+
+
 rule virus_taxonomy:
     input:
         meta=rules.get_virus_genomes.output.meta,
@@ -183,6 +230,16 @@ rule select_repdb_eukaryotes:
     output:
         tax="results/taxonomies/selected_eukaryotes.tsv",
         plot="results/plots/euka_db.pdf",
+    params:
+        remove_duplicated_species=lambda wildcards: _downsample_param(
+            "remove_duplicated_species", True
+        ),
+        top_n_genuses=lambda wildcards: _downsample_param("top_n_genuses", 3),
+        # pass the clade-reduction table as three parallel lists so the nested
+        # structure survives serialization into the R `snakemake` object.
+        reduce_ranks=lambda wildcards: [e["rank"] for e in _reduce_clades()],
+        reduce_taxa=lambda wildcards: [e["taxon"] for e in _reduce_clades()],
+        reduce_ns=lambda wildcards: [int(e["n"]) for e in _reduce_clades()],
     conda:
         "../envs/R.yaml"
     localrule: True
