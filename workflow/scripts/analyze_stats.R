@@ -143,9 +143,9 @@ meta <- tax %>%
   mutate(
     n_contaminants = replace_na(n_contaminants, 0L),
     prop_contaminants = if_else(!is.na(num_seqs) & num_seqs > 0,
-                                n_contaminants / num_seqs, NA_real_),
+                                n_contaminants / num_seqs, NA_real_)
     # sources with no completeness concept keep NA rather than a misleading 0
-    completeness = if_else(completeness_metric == "none", NA_real_, completeness)
+    # completeness = if_else(completeness_metric == "none", NA_real_, completeness)
   ) %>%
   select(mnemo, taxid, source_db,
          k, p, c, o, f, g, s,
