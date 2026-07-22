@@ -31,14 +31,18 @@ strip_ext <- function(x) str_remove(basename(x), "\\.(faa|fasta|fa)(\\.gz)?$")
 tax <- read_delim(snakemake@input[["tax"]], delim = "\t",
   col_names = c("mnemo", "k", "p", "c", "o", "f", "g", "s"),
   col_types = cols(.default = "c"), show_col_types = FALSE) %>%
-  # source database: superkingdom disambiguates GCF (GTDB prok vs NCBI virus)
+  # source database. The id prefix identifies the tracked sources first, so a
+  # custom (CUS) proteome is labelled "custom" even when it is NOT eukaryotic
+  # (the user may add bacterial/archaeal/viral custom proteomes); only the
+  # accession-id sources (GTDB, NCBI Virus) fall back to the superkingdom, where
+  # it disambiguates GCF (GTDB prokaryote vs NCBI virus).
   mutate(source_db = case_when(
-    k %in% c("Bacteria", "Archaea") ~ "gtdb",
-    k == "Viruses"                  ~ "virus",
     str_starts(mnemo, "UP")         ~ "uniprot",
     str_starts(mnemo, "EP")         ~ "eukprot",
     str_starts(mnemo, "P10")        ~ "p10k",
     str_starts(mnemo, "CUS")        ~ "custom",
+    k %in% c("Bacteria", "Archaea") ~ "gtdb",
+    k == "Viruses"                  ~ "virus",
     TRUE                            ~ "other"
   ))
 

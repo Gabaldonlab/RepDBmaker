@@ -164,19 +164,36 @@ def validate_reference_input(wildcards):
     return rules.eukaryotes_taxonomy_ref.output
 
 
+def validate_reference_prok(wildcards):
+    # non-eukaryotic custom proteomes (Bacteria/Archaea) are checked against GTDB
+    if REPDB_MANIFEST:
+        return []
+    return rules.get_gtdb_tax.output.tax
+
+
+def validate_reference_virus(wildcards):
+    # viral custom proteomes are checked against the RepDB virus taxonomy
+    if REPDB_MANIFEST:
+        return []
+    return rules.virus_taxonomy.output.tax
+
+
 rule validate_custom_proteomes:
     """Validate the custom-proteome table; the run aborts on violations.
 
     Rejects (rather than silently dropping/mislabelling) rows with a non-CUS ID,
     a duplicate ID, or a lineage that is not exactly seven correctly prefixed
-    non-empty ranks. When a reference eukaryotic taxonomy is available (normal
-    mode) it also rejects lineages that place a known taxon under a parent that
-    conflicts with the rest of the eukaryotic taxonomy.
+    non-empty ranks. Custom proteomes may be eukaryotic OR not; in normal mode
+    each row is also checked against the reference taxonomy for its domain
+    (Eukaryota, GTDB for Bacteria/Archaea, virus taxonomy for Viruses) and
+    rejected if it places a known taxon under a conflicting parent.
     See workflow/scripts/check_custom_proteomes.R.
     """
     input:
         table=config["files"]["new_genomes"],
         reference=validate_reference_input,
+        reference_prok=validate_reference_prok,
+        reference_virus=validate_reference_virus,
     output:
         "results/meta/custom_proteomes_valid.txt",
     conda:

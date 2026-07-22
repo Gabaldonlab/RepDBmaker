@@ -28,7 +28,8 @@
 #   ERROR   empty Fasta path
 #   ERROR   duplicate Fasta path
 #   ERROR   Fasta path missing or empty     (only with --check-fasta)
-#   ERROR   domain (d__) is not 'Eukaryota' (custom entries flow through the eukaryote path)
+#   ERROR   domain (d__) is not a recognized superkingdom
+#           (Eukaryota / Bacteria / Archaea / Viruses)
 #   ERROR   Species binomial does not match the s__ rank (mislabel / cross-organism row)
 #   ERROR   contrasting clades: the same taxon placed under different parents
 #           across custom rows (internal inconsistency; corrupts the taxdump)
@@ -38,13 +39,17 @@
 #           taxa the reference does not know - listed so novel additions can be
 #           reviewed (the only warning; only with a reference)
 #
-# The reference checks need a reference eukaryotic taxonomy built WITHOUT the
-# custom proteomes (mnemo<TAB>lineage), e.g.
-# results/taxonomies/eukaryotes_taxonomy_ref.tsv.
+# Custom proteomes are not required to be eukaryotic. Each row is checked against
+# the reference matching its own domain, built WITHOUT the custom proteomes
+# (mnemo<TAB>lineage): Eukaryota -> eukaryotes_taxonomy_ref.tsv,
+# Bacteria/Archaea -> gtdb_taxonomy.tsv, Viruses -> virus_taxonomy.tsv. A domain
+# with no reference provided is validated for schema only.
 #
 # Usage:
 #   Rscript workflow/scripts/check_custom_proteomes.R resources/custom_genomes_repdb.csv
-#   Rscript workflow/scripts/check_custom_proteomes.R <file> --reference euk_ref.tsv --check-fasta
+#   Rscript workflow/scripts/check_custom_proteomes.R <file> \
+#     --reference euk_ref.tsv --reference-prok gtdb_tax.tsv \
+#     --reference-virus virus_tax.tsv --check-fasta
 #
 # It can also be called from Snakemake (snakemake@input[["table"]],
 # snakemake@input[["reference"]]).
@@ -56,7 +61,10 @@ RESERVED_PREFIXES <- c("UP", "EP", "P10")
 RANK_PREFIXES <- c("d__", "p__", "c__", "o__", "f__", "g__", "s__")
 RANK_LABELS <- c("domain", "phylum", "class", "order", "family", "genus", "species")
 RANK_KEYS <- c("d", "p", "c", "o", "f", "g", "s")
-EXPECTED_DOMAIN <- "Eukaryota"
+# Custom proteomes need not be eukaryotic: the user may add bacterial/archaeal
+# (routed against GTDB) or viral (routed against ICTV/NCBI) proteomes. Each row
+# is checked against the reference matching its own domain.
+VALID_DOMAINS <- c("Eukaryota", "Bacteria", "Archaea", "Viruses")
 
 # ---- reporting helpers -------------------------------------------------------
 errors <- character(0)
@@ -146,7 +154,7 @@ check_against_reference <- function(values, where, lineage, ref) {
     ref_parents <- ref$parents[[i]][[child]]
     if (parent != "" && !is.null(ref_parents) && !(parent %in% ref_parents)) {
       add_error(sprintf(
-        "%s: %s '%s' is placed under %s '%s', but the eukaryotic taxonomy places it under '%s'",
+        "%s: %s '%s' is placed under %s '%s', but the reference taxonomy places it under '%s'",
         where, RANK_LABELS[i], child, RANK_LABELS[i - 1], parent,
         paste(ref_parents, collapse = "' / '")))
       conflict <- TRUE
@@ -190,26 +198,43 @@ check_internal_conflicts <- function(rows) {
 # out_path is a marker written on success (only when run from Snakemake).
 # reference_path is an optional reference eukaryotic taxonomy for the conflict
 # check; when absent, only the schema checks run.
+# reference paths per domain: euk (Eukaryota), prok (Bacteria + Archaea, GTDB),
+# virus (Viruses, ICTV/NCBI). Any may be absent -> that domain is schema-only.
+reference_paths <- list(euk = NULL, prok = NULL, virus = NULL)
+
 if (exists("snakemake")) {
   table_path <- snakemake@input[["table"]]
   check_fasta <- isTRUE(snakemake@params[["check_fasta"]])
   out_path <- snakemake@output[[1]]
-  reference_path <- tryCatch({
-    r <- snakemake@input[["reference"]]
-    if (length(r) == 0) NULL else r[[1]]
-  }, error = function(e) NULL)
+  opt_ref <- function(name) {
+    r <- tryCatch(snakemake@input[[name]], error = function(e) NULL)
+    if (is.null(r) || length(r) == 0 || !nzchar(r[[1]])) NULL else r[[1]]
+  }
+  reference_paths$euk <- opt_ref("reference")
+  reference_paths$prok <- opt_ref("reference_prok")
+  reference_paths$virus <- opt_ref("reference_virus")
 } else {
   args <- commandArgs(trailingOnly = TRUE)
   check_fasta <- "--check-fasta" %in% args
   args <- args[args != "--check-fasta"]
-  reference_path <- NULL
-  ri <- which(args == "--reference")
-  if (length(ri) == 1 && length(args) >= ri + 1) {
-    reference_path <- args[[ri + 1]]
-    args <- args[-c(ri, ri + 1)]
+  take_flag <- function(args, flag) {
+    i <- which(args == flag)
+    if (length(i) == 1 && length(args) >= i + 1) {
+      list(value = args[[i + 1]], args = args[-c(i, i + 1)])
+    } else {
+      list(value = NULL, args = args)
+    }
+  }
+  for (flag in c("--reference", "--reference-prok", "--reference-virus")) {
+    r <- take_flag(args, flag); args <- r$args
+    key <- c("--reference" = "euk", "--reference-prok" = "prok",
+             "--reference-virus" = "virus")[[flag]]
+    reference_paths[[key]] <- r$value
   }
   if (length(args) != 1) {
-    stop("usage: check_custom_proteomes.R <custom_proteome.tsv> [--reference <euk_tax.tsv>] [--check-fasta]")
+    stop(paste("usage: check_custom_proteomes.R <custom_proteome.tsv>",
+               "[--reference <euk_tax.tsv>] [--reference-prok <gtdb_tax.tsv>]",
+               "[--reference-virus <virus_tax.tsv>] [--check-fasta]"))
   }
   table_path <- args[[1]]
   out_path <- NULL
@@ -225,12 +250,22 @@ df <- suppressWarnings(suppressMessages(
   read_tsv(table_path, col_types = cols(.default = "c"), name_repair = "minimal")))
 df <- df[, !is.na(names(df)) & names(df) != "", drop = FALSE]
 
-# optional reference eukaryotic taxonomy for the conflict check
-ref_info <- NULL
-if (!is.null(reference_path) && file.exists(reference_path) &&
-    file.info(reference_path)$size > 0) {
-  message(sprintf("Checking lineages against reference taxonomy: %s", reference_path))
-  ref_info <- parse_reference(reference_path)
+# optional reference taxonomies for the conflict check, mapped to the domains
+# they cover (prokaryote reference serves both Bacteria and Archaea).
+ref_by_domain <- list()
+usable_ref <- function(path) {
+  !is.null(path) && file.exists(path) && file.info(path)$size > 0
+}
+for (spec in list(list("euk", "Eukaryota"),
+                  list("prok", c("Bacteria", "Archaea")),
+                  list("virus", "Viruses"))) {
+  path <- reference_paths[[spec[[1]]]]
+  if (usable_ref(path)) {
+    message(sprintf("Checking %s lineages against reference: %s",
+                    paste(spec[[2]], collapse = "/"), path))
+    info <- parse_reference(path)
+    for (d in spec[[2]]) ref_by_domain[[d]] <- info
+  }
 }
 
 missing <- setdiff(REQUIRED_COLUMNS, names(df))
@@ -309,10 +344,10 @@ for (i in seq_len(nrow(df))) {
   if (!is.null(values)) {
     domain <- values[[1]]
     species_rank <- values[[length(values)]]
-    if (domain != EXPECTED_DOMAIN) {
+    if (!(domain %in% VALID_DOMAINS)) {
       add_error(sprintf(
-        "%s: domain is '%s', expected '%s' - custom entries are treated as eukaryotes downstream",
-        where, domain, EXPECTED_DOMAIN))
+        "%s: domain '%s' is not a recognized superkingdom (%s)",
+        where, domain, paste(VALID_DOMAINS, collapse = ", ")))
     }
     species <- get("Species")
     if (species != "" && binomial(species) != "" &&
@@ -321,7 +356,8 @@ for (i in seq_len(nrow(df))) {
         "%s: Species '%s' does not match the s__ rank '%s' (possible mislabel or cross-organism row)",
         where, species, species_rank))
     }
-    # compare against the broader eukaryotic taxonomy (if a reference was given)
+    # compare against the reference taxonomy for this row's domain (if provided)
+    ref_info <- ref_by_domain[[domain]]
     if (!is.null(ref_info)) {
       check_against_reference(values, where, lineage, ref_info)
     }

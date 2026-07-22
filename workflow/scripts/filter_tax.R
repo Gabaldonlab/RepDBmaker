@@ -79,8 +79,13 @@ df <- og %>%
     left_join(rbind(up_stats, ep_stats, p10k_stats_red)) %>%
     filter(!mnemo %in% p10k_unannotated) %>%
     filter(!mnemo %in% exclude) %>%
-    ungroup()   # drop the rowwise() above; downstream steps operate columnwise
-                # (and the clade-reduction mutate needs df ungrouped)
+    ungroup() %>%   # drop the rowwise() above; downstream steps operate columnwise
+                    # (and the clade-reduction mutate needs df ungrouped)
+    # deterministic tie-break: slice_max(with_ties = FALSE) keeps the first row
+    # among equal-completeness ties, so fix the order by mnemo. Without this the
+    # selection would depend on the (drifting) input file order - breaking
+    # reproducibility when two proteomes of a species share a BUSCO score.
+    arrange(mnemo)
 
 
 

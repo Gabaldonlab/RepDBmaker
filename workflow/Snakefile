@@ -41,6 +41,7 @@ include: "rules/db.smk"
 include: "rules/cluster.smk"
 include: "rules/stats.smk"
 include: "rules/decontaminate.smk"
+include: "rules/universe.smk"
 
 
 # Test mode subsamples the fetched sequences, so it cannot coexist with
@@ -139,4 +140,10 @@ rule all:
         ),
         # Per-organism provenance metadata for every database (reviewer #3)
         expand("results/meta/{db}_meta.tsv", db=get_database_targets()),
+        # Pipeline-1 seam artifacts: the enriched universe + the frozen RepDB
+        # selection (+ a soft diff vs a committed reference). See
+        # docs/split-pipeline.md. Normal mode only (needs live harmonization).
+        *(["results/universe/universe.tsv",
+           "results/universe/repdb.ids",
+           "results/qc/repdb_ids_diff.txt"] if not REPDB_MANIFEST else []),
         # get_optional_targets()

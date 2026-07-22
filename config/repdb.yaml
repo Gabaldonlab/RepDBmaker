@@ -101,7 +101,14 @@ dbs:
 # the pipeline will still produce the repdb.fa.gz
 # Right now there is no option to do that as temp because it seems too complicated to manage :=)
 
-files: 
+files:
   clades_to_keep: "resources/clades_tokeep.txt"
   genomes_to_exclude: "resources/exclude.txt"
   new_genomes: "resources/custom_genomes_repdb.csv"
+  # optional: BUSCO/completeness scores for custom proteomes (id<TAB>completeness),
+  # carried into the universe / provenance metadata.
+  # new_genomes_busco: "resources/custom_busco.tsv"
+  # optional: a committed RepDB selection (id list) to diff a fresh selection
+  # against; rule repdb_ids_diff writes results/qc/repdb_ids_diff.txt (soft, not
+  # a gate). See docs/split-pipeline.md.
+  # repdb_ids_reference: "resources/repdb_v1.0.ids"

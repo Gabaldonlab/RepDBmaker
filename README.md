@@ -338,10 +338,16 @@ Notes on the implicit specification (made explicit here):
   under two different parents across your custom rows (e.g. class `Provora` under
   phylum `Diaphoretickes` in one row and `Metamonada` in another) — such
   contradictions corrupt the taxdump and are rejected.
-- **Lineage is checked against the broader eukaryotic taxonomy.** A lineage that
-  places a *known* taxon under a conflicting parent (e.g. a genus that the public
-  sources put in a different family, or a yeast tagged `d__Bacteria;…`) is
-  rejected. Genuinely novel taxa (absent from the public sources) are accepted.
+- **Custom proteomes need not be eukaryotic.** Bacterial/archaeal or viral custom
+  proteomes are accepted; each row is checked against the reference matching its
+  own domain — Eukaryota vs the harmonized eukaryotic taxonomy, Bacteria/Archaea
+  vs GTDB, Viruses vs the RepDB virus taxonomy. The domain (`d__`) must be one of
+  `Eukaryota`, `Bacteria`, `Archaea`, `Viruses`.
+- **Lineage is checked against the reference for its domain.** A lineage that
+  places a *known* taxon under a conflicting parent (e.g. a genus that the source
+  taxonomy puts in a different family) is rejected. Genuinely novel taxa (absent
+  from the reference) are accepted. A domain with no reference wired in (e.g. in
+  reproduce/manifest mode) is validated for schema only.
 - **All seven ranks must be present and non-empty** (`d__` through `s__`), because
   the taxdump is built by splitting the lineage into exactly these columns.
 
@@ -357,20 +363,24 @@ You can also run it standalone:
 
 ```bash
 Rscript workflow/scripts/check_custom_proteomes.R resources/custom_genomes_repdb.csv
-# check lineage conflicts against a reference eukaryotic taxonomy:
-Rscript workflow/scripts/check_custom_proteomes.R <table> --reference results/taxonomies/eukaryotes_taxonomy_ref.tsv
+# check lineage conflicts against per-domain reference taxonomies:
+Rscript workflow/scripts/check_custom_proteomes.R <table> \
+  --reference results/taxonomies/eukaryotes_taxonomy_ref.tsv \
+  --reference-prok results/taxonomies/gtdb_taxonomy.tsv \
+  --reference-virus results/taxonomies/virus_taxonomy.tsv
 # add --check-fasta to also verify each Fasta path exists and is non-empty
 ```
 
 It **errors** (non-zero exit) on: missing columns, non-`CUS` IDs, duplicate IDs,
 lineages that are not exactly seven correctly prefixed non-empty ranks, empty or
-duplicate Fasta paths, a non-`Eukaryota` domain, a `Species` that does not match
-the `s__` rank (mislabel / cross-organism row), internal contradictions (a taxon
+duplicate Fasta paths, a domain that is not a recognized superkingdom
+(`Eukaryota`/`Bacteria`/`Archaea`/`Viruses`), a `Species` that does not match the
+`s__` rank (mislabel / cross-organism row), internal contradictions (a taxon
 under conflicting parents across custom rows), and any lineage that conflicts
-with the reference taxonomy (a known taxon placed under a parent it does not have
-there). The **only warning** lists the *new coherent lineages* — custom entries
-that do not conflict but introduce taxa the reference does not know — so the
-novel taxonomy being added can be reviewed before it propagates.
+with the reference taxonomy for its domain (a known taxon placed under a parent it
+does not have there). The **only warning** lists the *new coherent lineages* —
+custom entries that do not conflict but introduce taxa the reference does not
+know — so the novel taxonomy being added can be reviewed before it propagates.
 
 ## Decontamination
 
@@ -524,4 +534,17 @@ See the `LICENSE` file for license details.
 
 ## TODOs
 
+
 * Add snakemake-executor-plugin-slurm to installation instructions
+* Test Docker and conda locks
+* Test combination of config
+* Add QC plots!
+* Decide what to do with snakemake version
+* Zenodo fasta + taxonomic annotation
+* Control check_custom_proteomes.R
+* add tests
+* better documentation decon
+* describe how you fill the missing clades
+* test with smk 9
+* add package releases
+
