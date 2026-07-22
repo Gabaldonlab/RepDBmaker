@@ -11,15 +11,8 @@
 #   taxid                the NCBI-style taxid assigned in the database taxdump
 #   source_db            gtdb / virus / uniprot / eukprot / p10k / custom
 #   k..s                 the (harmonized) 7-rank lineage as stored in the database
-#   taxonomy_authority   which taxonomy each source's ranks actually come from
-#                        (GTDB / ICTV+NCBI / UniEuk) -- so a "class" is not blindly
-#                        compared across the three frameworks
 #   data_type            genome / transcriptome / single-cell / SAG / MAG ...
 #   completeness         a numeric score WHERE ONE EXISTS ...
-#   completeness_metric  ... and which metric produced it (BUSCO lineage-specific
-#                        vs CheckM2 vs none) -- these are NOT comparable across
-#                        sources, so the metric is carried explicitly
-#   upstream_filter      the QC/decontamination the SOURCE applied before us
 #   n_contaminants,      RepDBmaker's own decontamination flagging for this
 #   prop_contaminants    organism (0 / NA when decontamination was not run)
 #   num_seqs..max_len    seqkit size statistics
@@ -63,18 +56,6 @@ if (nzchar(taxid_map) && file.exists(taxid_map)) {
   taxids <- tibble(mnemo = character(0), taxid = character(0))
 }
 
-# ---- source-level provenance constants (heterogeneity made explicit) ---------
-# These document, per source, the properties the reviewer notes are NOT uniform
-# across the integrated database. Keep in sync with the manuscript / README.
-SOURCE_META <- tribble(
-  ~source_db, ~taxonomy_authority, ~completeness_metric,        ~upstream_filter,
-  "gtdb",     "GTDB",              "CheckM2",                    "GTDB species representative (CheckM QC + ANI dereplication)",
-  "virus",    "ICTV/NCBI",         "none",                       "RefSeq curation",
-  "uniprot",  "UniEuk (harmonized from NCBI)", "BUSCO (lineage-specific)", "UniProt reference proteome (BUSCO + CPD)",
-  "eukprot",  "UniEuk (harmonized)", "BUSCO (lineage-specific)", "EukProt manual curation",
-  "p10k",     "UniEuk (harmonized)", "BUSCO (lineage-specific)", "P10K project QC",
-  "custom",   "user-provided (validated)", "user-provided",      "user-provided"
-)
 
 norm_data_type <- function(x) {
   x <- tolower(replace_na(as.character(x), ""))
@@ -123,8 +104,8 @@ if (!is.null(custom_busco_path)) {
 gtdb_meta_path <- opt_in("gtdb_meta")
 if (!is.null(gtdb_meta_path)) {
   gm <- read_delim(gtdb_meta_path, show_col_types = FALSE)
-  comp_col <- intersect(c("checkm2_completeness", "checkm_completeness"), names(gm))[1]
-  type_col <- intersect(c("ncbi_genome_category", "gtdb_type_designation"), names(gm))[1]
+  comp_col <- intersect("checkm2_completeness", names(gm))[1]
+  type_col <- intersect("ncbi_assembly_level", names(gm))[1]
   per_source$gtdb <- tibble(
     mnemo = gsub("_", "", substr(gm$accession, 4, 16)),
     completeness = if (!is.na(comp_col)) suppressWarnings(as.numeric(gm[[comp_col]])) else NA_real_,
@@ -156,7 +137,6 @@ stats <- stats %>% mutate(mnemo = strip_ext(file)) %>% select(-file)
 # ---- assemble ----------------------------------------------------------------
 meta <- tax %>%
   left_join(taxids, by = "mnemo") %>%
-  left_join(SOURCE_META, by = "source_db") %>%
   left_join(annot, by = "mnemo") %>%
   left_join(stats, by = "mnemo") %>%
   left_join(contaminants, by = "mnemo") %>%
@@ -167,9 +147,9 @@ meta <- tax %>%
     # sources with no completeness concept keep NA rather than a misleading 0
     completeness = if_else(completeness_metric == "none", NA_real_, completeness)
   ) %>%
-  select(mnemo, taxid, source_db, taxonomy_authority,
+  select(mnemo, taxid, source_db,
          k, p, c, o, f, g, s,
-         data_type, completeness, completeness_metric, upstream_filter,
+         data_type, completeness,
          n_contaminants, prop_contaminants,
          any_of(c("num_seqs", "sum_len", "min_len", "avg_len", "max_len")))
 
