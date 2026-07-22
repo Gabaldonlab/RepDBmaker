@@ -44,47 +44,23 @@ reduce_clade <- function(data, rank, taxon, n) {
 
 exclude <- readLines(snakemake@input[["exclude"]])
 
-up_stats <- read_delim(snakemake@input[["up_stats"]], show_col_types = F) %>% 
-    janitor::clean_names() %>% 
-    mutate(completeness=parse_number(gsub("\\[.*", "", busco))) %>% 
-    select(proteome_id, completeness)
-colnames(up_stats) <- c("mnemo", "completeness")
-ep_stats <- read_delim(snakemake@input[["ep_stats"]], show_col_types = F) %>% 
-    mutate(mnemo=gsub("_.*", "", Input_file)) %>% 
-    select(mnemo, Complete)
-colnames(ep_stats) <- c("mnemo", "completeness")
-p10k_stats <- read_delim(snakemake@input[["p10k_stats"]], show_col_types = F)
-
-# some p10k genomes are not annotated! Remove them
-p10k_unannotated <- p10k_stats[p10k_stats$n_genes==-1, ]$p10k_id
-
-paste("There are ", length(p10k_unannotated), "P10K unannotated genomes")
-
-p10k_stats_red <- select(p10k_stats, p10k_id, completeness)
-colnames(p10k_stats_red) <- c("mnemo", "completeness")
-
-
-og <- read_delim(c(snakemake@input[["up"]], snakemake@input[["ep"]], 
-                   snakemake@input[["p10k"]], snakemake@input[["custom"]]),
-                 col_names = c("mnemo", "lineage"), delim = "\t", show_col_types = F)
-df <- og %>% 
-    separate(lineage, c("k", "p", "c", "o", "f", "g", "s"), ";") %>% 
-    mutate_all(~gsub("[a-z]__", "", .)) %>% 
-    rowwise() %>% 
-    mutate(db = case_when(grepl("^UP", mnemo) ~ "uniprot",
-                          grepl("^EP", mnemo) ~ "eukprot",
-                          grepl("^P10", mnemo) ~ "p10k",
-                          grepl("^CUS", mnemo) ~ "custom"),
-           db = factor(db, levels = c("custom","uniprot", "eukprot", "p10k")))  %>% 
-    left_join(rbind(up_stats, ep_stats, p10k_stats_red)) %>%
-    filter(!mnemo %in% p10k_unannotated) %>%
+# Eukaryote selection operates on the UNIVERSE (id, source, ranks, completeness,
+# annotated). Only eukaryotes are downsampled here; prokaryotes/viruses are taken
+# wholesale into RepDB later. Reading the universe makes the selection a pure,
+# deterministic function of (universe, config) - so it reproduces exactly from a
+# pinned universe without re-running the taxonomy harmonization.
+EUK_SOURCES <- c("custom", "uniprot", "eukprot", "p10k")
+df <- read_delim(snakemake@input[["universe"]], delim = "\t", show_col_types = FALSE,
+                 col_types = cols(.default = "c")) %>%
+    filter(source_db %in% EUK_SOURCES) %>%
+    mutate(db = factor(source_db, levels = EUK_SOURCES),
+           completeness = suppressWarnings(as.numeric(completeness)),
+           annotated = as.logical(annotated)) %>%
+    filter(is.na(annotated) | annotated) %>%   # drop known-unannotated proteomes (P10K n_genes == -1)
     filter(!mnemo %in% exclude) %>%
-    ungroup() %>%   # drop the rowwise() above; downstream steps operate columnwise
-                    # (and the clade-reduction mutate needs df ungrouped)
     # deterministic tie-break: slice_max(with_ties = FALSE) keeps the first row
-    # among equal-completeness ties, so fix the order by mnemo. Without this the
-    # selection would depend on the (drifting) input file order - breaking
-    # reproducibility when two proteomes of a species share a BUSCO score.
+    # among equal-completeness ties, so fix the order by mnemo (otherwise the
+    # selection would depend on the universe row order).
     arrange(mnemo)
 
 
@@ -218,8 +194,14 @@ final_plot <- (raw | no_dup_sps | no_dup_genus | final) + plot_layout(guides = '
 
 ggsave(snakemake@output[["plot"]], final_plot, width = 12, height = 12)
 
-filter(og, mnemo %in% df$mnemo) %>% 
-    write_delim(snakemake@output[["tax"]], delim = "\t", col_names = F)
+# write the selected eukaryotes as mnemo<TAB>prefixed-lineage (repdb_taxonomy
+# only needs the id column, but keep the lineage for readability / QC).
+b <- function(x) coalesce(x, "")
+df %>%
+    transmute(mnemo,
+              lineage = paste0("d__", b(k), ";p__", b(p), ";c__", b(c), ";o__", b(o),
+                               ";f__", b(f), ";g__", b(g), ";s__", b(s))) %>%
+    write_delim(snakemake@output[["tax"]], delim = "\t", col_names = FALSE)
 
 
 # maybe also do not remove if they dont have a complete enough proteome

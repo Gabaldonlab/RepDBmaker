@@ -45,12 +45,12 @@ include: "rules/universe.smk"
 
 
 # Test mode subsamples the fetched sequences, so it cannot coexist with
-# reproduce/manifest mode (which must fetch the exact frozen composition).
-if TEST_N and REPDB_MANIFEST:
+# reproduce mode (a pinned universe, which must reproduce the exact composition).
+if TEST_N and REPDB_UNIVERSE:
     raise ValueError(
-        "Test mode (`test`) and reproduce mode (`dbs.build.repdb.manifest`) are "
-        "mutually exclusive: test mode would subsample the frozen manifest instead "
-        "of reproducing it. Disable one of them."
+        "Test mode (`test`) and pinned-universe mode (`dbs.build.repdb.universe`) "
+        "are mutually exclusive: test mode would subsample the frozen universe "
+        "instead of reproducing it. Disable one of them."
     )
 
 
@@ -100,50 +100,67 @@ def get_decontaminated_database_targets():
     return [db for db in get_database_targets() if _is_db_decon(db)]
 
 
+# ---------------------------------------------------------------------------
+# The workflow is two pipelines joined at the universe seam (see
+# docs/split-pipeline.md). Run them independently or together:
+#   snakemake sample   # Pipeline 1 (curation): the universe + selection + QC
+#   snakemake build    # Pipeline 2 (construction): the databases
+#   snakemake          # both (default target `all`)
+# Pipeline 2 alone reproduces a release from a pinned universe
+# (dbs.build.repdb.universe): `snakemake build` then skips all harmonization.
+# ---------------------------------------------------------------------------
+
+# Pipeline 1 — everything up to and including the versioned seam artifacts.
+SAMPLE_TARGETS = [
+    "results/meta/check_resources.txt",
+    "results/meta/available_proteomes.tsv",
+    # the enriched universe + the RepDB selection (+ a soft diff vs a committed
+    # reference). Produced in both modes - a pinned universe is cp'd, the
+    # selection re-runs on it.
+    "results/universe/universe.tsv",
+    "results/universe/repdb.ids",
+    "results/qc/repdb_ids_diff.txt",
+    # taxonomy harmonization report + Krona charts (normal mode only; a pinned
+    # universe skips the per-source harmonization these need).
+    *(["results/qc/harmonization_report.html",
+       "results/qc/krona/repdb_krona.html"] if not REPDB_UNIVERSE else []),
+]
+
+# Pipeline 2 — the databases built from the universe (+ their clustering,
+# decontamination, stats and provenance metadata).
+BUILD_TARGETS = [
+    *expand("results/dbs/{db}/{db}_{dbtype}",
+            db=get_database_targets(), dbtype=config["dbs"]["type"]),
+    *expand("results/dbs/{db}/cluster/cluster_params.yaml",
+            db=get_clustered_database_targets()),
+    *expand("results/dbs/{db}/decontaminate/decontaminate_params.yaml",
+            db=get_decontaminated_database_targets()),
+    *expand("results/dbs/{db}/decontaminate/contaminants.tsv",
+            db=get_decontaminated_database_targets()),
+    *expand("results/dbs/{db}/decontaminate/pair_counts.tsv",
+            db=get_decontaminated_database_targets()),
+    *expand("results/stats/{db}_stats.tsv", db=get_database_targets()),
+    *expand("results/stats/{db}_clustered_stats.tsv",
+            db=get_clustered_database_targets()),
+    *expand("results/meta/{db}_meta.tsv", db=get_database_targets()),
+]
+
+
 rule all:
     input:
-        # Downloadable files
-        "results/meta/check_resources.txt",
-        # QC: taxonomy harmonization report + interactive Krona charts (normal
-        # mode only; the per-source taxonomies are not built from a frozen manifest)
-        *(["results/qc/harmonization_report.html",
-           "results/qc/krona/repdb_krona.html"] if not REPDB_MANIFEST else []),
-        # Database files
-        expand(
-            "results/dbs/{db}/{db}_{dbtype}",
-            db=get_database_targets(),
-            dbtype=config["dbs"]["type"],
-        ),
-        # Clustering files
-        expand(
-            "results/dbs/{db}/cluster/cluster_params.yaml",
-            db=get_clustered_database_targets(),
-        ),
-        # Decontamination files
-        expand(
-            "results/dbs/{db}/decontaminate/decontaminate_params.yaml",
-            db=get_decontaminated_database_targets(),
-        ),
-        expand(
-            "results/dbs/{db}/decontaminate/contaminants.tsv",
-            db=get_decontaminated_database_targets(),
-        ),
-        expand(
-            "results/dbs/{db}/decontaminate/pair_counts.tsv",
-            db=get_decontaminated_database_targets(),
-        ),
-        # Stats files
-        expand("results/stats/{db}_stats.tsv", db=get_database_targets()),
-        expand(
-            "results/stats/{db}_clustered_stats.tsv",
-            db=get_clustered_database_targets(),
-        ),
-        # Per-organism provenance metadata for every database (reviewer #3)
-        expand("results/meta/{db}_meta.tsv", db=get_database_targets()),
-        # Pipeline-1 seam artifacts: the enriched universe + the frozen RepDB
-        # selection (+ a soft diff vs a committed reference). See
-        # docs/split-pipeline.md. Normal mode only (needs live harmonization).
-        *(["results/universe/universe.tsv",
-           "results/universe/repdb.ids",
-           "results/qc/repdb_ids_diff.txt"] if not REPDB_MANIFEST else []),
-        # get_optional_targets()
+        SAMPLE_TARGETS + BUILD_TARGETS
+    default_target: True
+
+
+rule sample:
+    """Pipeline 1 (curation): produce the versioned universe, the RepDB selection
+    and the taxonomy QC. No sequences are fetched."""
+    input:
+        SAMPLE_TARGETS
+
+
+rule build:
+    """Pipeline 2 (construction): build the databases from the universe (freshly
+    generated or pinned via dbs.build.repdb.universe)."""
+    input:
+        BUILD_TARGETS

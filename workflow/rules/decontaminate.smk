@@ -31,8 +31,6 @@ def _is_db_decon(db_name):
 
 
 rule write_decontamination_params:
-    input:
-        tax=rules.create_full_taxdump.output.all_taxa,
     output:
         params="results/dbs/{db}/decontaminate/decontaminate_params.yaml",
     localrule: True
@@ -153,7 +151,7 @@ rm ${{cont_dir}}/chunk_*
 rule get_mixed_clusters:
     input:
         clusters=rules.remove_singletons.output.clusters,
-        taxdump=rules.create_full_taxdump.output.full_taxdump,
+        taxdump=rules.create_taxdump.output.full_taxdump,
     output:
         interesting="results/dbs/{db}/decontaminate/mixed.ids",
         mixed="results/dbs/{db}/decontaminate/mixed_cluster.tsv",

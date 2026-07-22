@@ -547,4 +547,7 @@ See the `LICENSE` file for license details.
 * describe how you fill the missing clades
 * test with smk 9
 * add package releases
+* custom proteomes tar creator (overkill for now)
+* change links in tab custom
+* custom genomes in available_proteomes
 

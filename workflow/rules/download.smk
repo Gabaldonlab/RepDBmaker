@@ -109,7 +109,7 @@ zcat {output.bac_meta} {output.ar_meta} | csvtk filter2 -t -f'$gtdb_representati
 cat {output.bac} {output.ar} | awk 'BEGIN{{OFS=FS="\\t"}} {{ $1 = substr($1, 4, 13) }} 1' | \
 sed 's/_//' > {output.tax}
 """
-
+# in the taxonomy there are all gtdb entries not only reference species, this may be good for those clades without?
 
 # | src/filter_gtdb.R
 rule get_gtdb_genomes:

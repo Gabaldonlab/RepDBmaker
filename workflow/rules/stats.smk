@@ -143,7 +143,7 @@ rule make_db_meta:
     input:
         tax=_db_meta_tax,
         stats="results/stats/{db}_stats.tsv",
-        taxdump=rules.create_full_taxdump.output.full_taxdump,
+        taxdump=rules.create_taxdump.output.full_taxdump,
         up_stats=rules.get_uniprot_meta.output.stats,
         ep_stats=rules.get_eukprot.output.euk_busco,
         ep=rules.get_eukprot.output.euk_included,

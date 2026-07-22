@@ -44,7 +44,7 @@ mmseqs_ext = [
 rule make_db_fasta:
     input:
         table="results/dbs/{db}/genome_table.tsv",
-        taxdump=rules.create_full_taxdump.output.full_taxdump,
+        taxdump=rules.create_taxdump.output.full_taxdump,
         stats="results/stats/{db}_stats.tsv",  # if this failed it means some proteomes had problems while downloading!
     output:
         # fa=temp("results/dbs/{db}/{db}_raw.fa.gz"),
@@ -85,7 +85,7 @@ rule make_mmseqsdb_clustering:
     input:
         fa=rules.make_db_fasta.output.fa,
         taxidmap=rules.make_db_map.output.noheadermap,
-        taxdump=rules.create_full_taxdump.output.full_taxdump,
+        taxdump=rules.create_taxdump.output.full_taxdump,
     output:
         db=temp("results/dbs/{db}/cluster/{db}_mmseqs"),
         db_extra=temp(
@@ -145,7 +145,7 @@ rule make_diamonddb:
     input:
         fa=get_final_db_fa,
         taxidmap="results/dbs/{db}/{db}.map",
-        taxdump=rules.create_full_taxdump.output.full_taxdump,
+        taxdump=rules.create_taxdump.output.full_taxdump,
     output:
         "results/dbs/{db}/{db}_diamond",
     log:
@@ -171,7 +171,7 @@ rule make_mmseqsdb:
     input:
         fa=get_final_db_fa,
         taxidmap="results/dbs/{db}/{db}_nohead.map",
-        taxdump=rules.create_full_taxdump.output.full_taxdump,
+        taxdump=rules.create_taxdump.output.full_taxdump,
     output:
         "results/dbs/{db}/{db}_mmseqs",
     log:

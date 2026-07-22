@@ -21,7 +21,8 @@
 # Checks (ERROR fails validation / non-zero exit; WARNING is reported only):
 #   ERROR   missing required column
 #   ERROR   ID does not start with 'CUS'   (else silently dropped by filter_tax.R)
-#   ERROR   duplicate ID
+#   ERROR   duplicate ID (within the table, or - with --existing / the `existing`
+#           input - colliding with an id already in the database / universe)
 #   ERROR   lineage not exactly 7 ranks    (else separate() mangles it)
 #   ERROR   lineage rank has wrong/missing prefix (d__,p__,c__,o__,f__,g__,s__)
 #   ERROR   lineage rank empty after its prefix
@@ -201,6 +202,10 @@ check_internal_conflicts <- function(rows) {
 # reference paths per domain: euk (Eukaryota), prok (Bacteria + Archaea, GTDB),
 # virus (Viruses, ICTV/NCBI). Any may be absent -> that domain is schema-only.
 reference_paths <- list(euk = NULL, prok = NULL, virus = NULL)
+# optional set of already-known ids (first column) the custom ids must not
+# collide with. Pipeline 2 passes the universe here so a user-supplied custom
+# proteome cannot reuse an id already present (public or release custom).
+existing_path <- NULL
 
 if (exists("snakemake")) {
   table_path <- snakemake@input[["table"]]
@@ -213,6 +218,7 @@ if (exists("snakemake")) {
   reference_paths$euk <- opt_ref("reference")
   reference_paths$prok <- opt_ref("reference_prok")
   reference_paths$virus <- opt_ref("reference_virus")
+  existing_path <- opt_ref("existing")
 } else {
   args <- commandArgs(trailingOnly = TRUE)
   check_fasta <- "--check-fasta" %in% args
@@ -231,10 +237,12 @@ if (exists("snakemake")) {
              "--reference-virus" = "virus")[[flag]]
     reference_paths[[key]] <- r$value
   }
+  r <- take_flag(args, "--existing"); args <- r$args; existing_path <- r$value
   if (length(args) != 1) {
     stop(paste("usage: check_custom_proteomes.R <custom_proteome.tsv>",
                "[--reference <euk_tax.tsv>] [--reference-prok <gtdb_tax.tsv>]",
-               "[--reference-virus <virus_tax.tsv>] [--check-fasta]"))
+               "[--reference-virus <virus_tax.tsv>] [--existing <ids.tsv>]",
+               "[--check-fasta]"))
   }
   table_path <- args[[1]]
   out_path <- NULL
@@ -266,6 +274,16 @@ for (spec in list(list("euk", "Eukaryota"),
     info <- parse_reference(path)
     for (d in spec[[2]]) ref_by_domain[[d]] <- info
   }
+}
+
+# optional set of already-known ids (first column) - custom ids must be disjoint
+existing_ids <- character(0)
+if (usable_ref(existing_path)) {
+  message(sprintf("Checking custom ids for collisions against: %s", existing_path))
+  existing_ids <- suppressWarnings(suppressMessages(
+    read_tsv(existing_path, col_names = FALSE, col_types = cols(.default = "c"),
+             name_repair = "minimal")))[[1]]
+  existing_ids <- unique(trimws(existing_ids[!is.na(existing_ids)]))
 }
 
 missing <- setdiff(REQUIRED_COLUMNS, names(df))
@@ -328,6 +346,11 @@ for (i in seq_len(nrow(df))) {
       add_error(sprintf("%s: duplicate ID, first seen at line %d", where, seen_ids[[rid]]))
     } else {
       seen_ids[[rid]] <- lineno
+    }
+    if (rid %in% existing_ids) {
+      add_error(sprintf(
+        "%s: ID '%s' already exists in the database (public or release custom); custom ids must be unique",
+        where, rid))
     }
   }
 

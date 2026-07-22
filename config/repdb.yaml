@@ -11,7 +11,7 @@ versions:
 # per source. NOTE: this only subsamples the per-genome sequence fetching/DB
 # build; the large downloads (GTDB tarball, EukProt archive, virus zip) and
 # the QC/Krona reports still run on the full sources. Mutually exclusive with
-# reproduce/manifest mode.
+# reproduce mode (a pinned universe).
 test: false
 
 dbs:
@@ -19,14 +19,14 @@ dbs:
   # Which databases to build
   build:
     repdb:
-      # Reproduce mode: to rebuild the *exact* composition of a previous run
-      # (e.g. the published RepDB v1.0) regardless of how the online sources
-      # have drifted, point `manifest` at a frozen repdb_taxonomy.tsv
-      # (ID + the 7 rank columns k,p,c,f,o,g,s). When set, the selection and
-      # taxonomy-harmonization steps are skipped and only the listed IDs are
-      # fetched. Freeze one from a full run with:
-      #   cp results/taxonomies/repdb_taxonomy.tsv resources/repdb_v1.0.manifest.tsv
-      # manifest: resources/repdb_v1.0.manifest.tsv
+      # Reproduce mode: to rebuild a previous release (e.g. RepDB v1.0) regardless
+      # of how the online sources have drifted, pin the frozen UNIVERSE - the
+      # enriched table of every available proteome (id, source, 7 ranks,
+      # completeness, annotated). When set, the taxonomy harmonization is skipped,
+      # the taxdump is the full pinned universe, and the eukaryote selection
+      # re-runs deterministically on it. Freeze one from a full run with:
+      #   cp results/universe/universe.tsv resources/repdb_v1.0.universe.tsv
+      # universe: resources/repdb_v1.0.universe.tsv
       #
       # Eukaryote downsampling: how the redundant public eukaryotic proteomes
       # are thinned before building RepDB. The whole `downsample` block is
@@ -73,12 +73,12 @@ dbs:
       #     coverage: 0.9
       #   decontaminate:
       #     prop_euka: 0.5
-      random: 
-        ids: resources/random_500.ids
-        cluster: 
-          level: phylum
-          identity: 0.4
-          coverage: 0.3
+      # random: 
+      #   ids: resources/random_500.ids
+      #   cluster: 
+      #     level: phylum
+      #     identity: 0.4
+      #     coverage: 0.3
       # nctv: 
       #   ids: resources/nctv.ids
       #   cluster: 

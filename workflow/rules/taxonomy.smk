@@ -1,23 +1,20 @@
-def repdb_manifest():
-    """Path to a frozen RepDB manifest, or None.
+def repdb_universe():
+    """Path to a pinned universe.tsv, or None.
 
-    A manifest is a previously produced ``repdb_taxonomy.tsv`` (ID + the seven
-    tab-separated rank columns k,p,c,f,o,g,s). When set under
-    ``dbs.build.repdb.manifest`` in the config, RepDB is *reproduced* from this
-    exact composition instead of being re-selected from the live sources: the
-    manifest replaces both the ``repdb_taxonomy`` checkpoint and the taxonomy
-    that feeds ``create_full_taxdump``. This decouples the whole selection /
-    taxonomy-harmonization phase from the drifting online metadata — the only
-    remaining online access is fetching the sequences for the frozen IDs
-    (composition-level, not bitwise, reproducibility).
+    The universe is the enriched, versionable table of every available proteome
+    (id, source, 7 ranks, completeness, annotated). When ``dbs.build.repdb.universe``
+    is set, the universe is taken from this frozen file instead of being rebuilt
+    from the live sources: the taxonomy harmonization is skipped, the taxdump is
+    the full pinned universe, and the eukaryote selection re-runs deterministically
+    on it.
     """
     repdb_conf = (config.get("dbs", {}).get("build", {}) or {}).get("repdb") or {}
     if isinstance(repdb_conf, dict):
-        return repdb_conf.get("manifest")
+        return repdb_conf.get("universe")
     return None
 
 
-REPDB_MANIFEST = repdb_manifest()
+REPDB_UNIVERSE = repdb_universe()
 
 
 # ---- eukaryote downsampling parameters (dbs.build.repdb.downsample) ----------
@@ -155,26 +152,18 @@ rule eukaryotes_taxonomy_ref:
         "cat {input} | sort -k2,2 > {output}"
 
 
+# Per-domain references for the custom-proteome conflict check. In pinned-universe
+# mode these rules are simply not in the DAG (harmonization is skipped), so no
+# manifest guard is needed.
 def validate_reference_input(wildcards):
-    # In reproduce (manifest) mode there is no fresh eukaryotic taxonomy to
-    # check against, so validation is schema-only; in normal mode the reference
-    # (public eukaryotic taxonomy, no custom) enables the conflict check.
-    if REPDB_MANIFEST:
-        return []
     return rules.eukaryotes_taxonomy_ref.output
 
 
 def validate_reference_prok(wildcards):
-    # non-eukaryotic custom proteomes (Bacteria/Archaea) are checked against GTDB
-    if REPDB_MANIFEST:
-        return []
     return rules.get_gtdb_tax.output.tax
 
 
 def validate_reference_virus(wildcards):
-    # viral custom proteomes are checked against the RepDB virus taxonomy
-    if REPDB_MANIFEST:
-        return []
     return rules.virus_taxonomy.output.tax
 
 
@@ -235,13 +224,10 @@ rule eukaryotes_taxonomy:
 
 rule select_repdb_eukaryotes:
     input:
-        up=rules.uniprot_taxonomy.output,
-        ep=rules.eukprot_taxonomy.output,
-        p10k=rules.p10k_taxonomy.output,
-        custom=rules.custom_taxonomy.output,
-        up_stats=rules.get_uniprot_meta.output.stats,
-        ep_stats=rules.get_eukprot.output.euk_busco,
-        p10k_stats=rules.get_p10k.output.meta,
+        # the eukaryote downsampling reads the universe (ranks + completeness), so
+        # it re-runs deterministically from a pinned universe. Literal path to
+        # decouple from include order (build_universe lives in universe.smk).
+        universe="results/universe/universe.tsv",
         exclude=config["files"]["genomes_to_exclude"],
         to_keep=config["files"]["clades_to_keep"],
     output:
@@ -265,89 +251,71 @@ rule select_repdb_eukaryotes:
         "../scripts/filter_tax.R"
 
 
-if REPDB_MANIFEST:
-
-    rule create_full_taxdump:
-        """Reproduce mode: build the taxdump directly from the frozen manifest.
-
-        The manifest is already in ``all_taxonomy.tsv`` format (ID + 7 ranks),
-        so no live taxonomy sources are needed.
+rule create_full_taxdump:
+    """The full taxonomy of every available proteome (all sources), id + 7 ranks.
+    Feeds build_universe; only built in normal mode (a pinned universe skips it)."""
+    input:
+        virus=rules.virus_taxonomy.output.tax,
+        gtdb=rules.get_gtdb_tax.output.tax,
+        all_euka=rules.eukaryotes_taxonomy.output,
+    output:
+        all_taxa="results/taxonomies/all_taxonomy.tsv",
+    conda:
+        "../envs/utils.yaml"
+    localrule: True
+    shell:
         """
-        input:
-            manifest=REPDB_MANIFEST,
-        output:
-            all_taxa="results/taxonomies/all_taxonomy.tsv",
-            full_taxdump=directory("results/taxdump/repdb_taxdump/"),
-        conda:
-            "../envs/utils.yaml"
-        localrule: True
-        shell:
-            """
-cp {input.manifest} {output.all_taxa}
-taxonkit create-taxdump -A1 {output.all_taxa} --out-dir {output.full_taxdump} --force \
---rank-names "superkingdom","phylum","class","order","family","genus","species"
-"""
-
-else:
-
-    rule create_full_taxdump:
-        """Create taxdump from all genomes (used by all databases)"""
-        input:
-            # gtdb_proteomes=rules.decompress_gtdb_genomes.output,
-            virus=rules.virus_taxonomy.output.tax,
-            gtdb=rules.get_gtdb_tax.output.tax,
-            all_euka=rules.eukaryotes_taxonomy.output,
-        output:
-            # ids="results/meta/all.ids",
-            all_taxa="results/taxonomies/all_taxonomy.tsv",
-            full_taxdump=directory("results/taxdump/repdb_taxdump/"),
-        conda:
-            "../envs/utils.yaml"
-        localrule: True
-        shell:
-            """
 cat {input.virus} {input.gtdb} {input.all_euka} | \
 sed 's/d__//g' | sed 's/[a-z]__/\\t/g' | sed 's/;//g' > {output.all_taxa}
-taxonkit create-taxdump -A1 {output.all_taxa} --out-dir {output.full_taxdump} --force \
+"""
+
+
+rule create_taxdump:
+    """Build the taxdump from the UNIVERSE (id + 7 ranks), so it always covers
+    the full set of available proteomes and is defined by the versioned universe
+    artifact rather than by whichever subset a given database selects. taxids are
+    hashed per-lineage by taxonkit, so they are identical to a fresh full run."""
+    input:
+        universe="results/universe/universe.tsv",
+    output:
+        full_taxdump=directory("results/taxdump/repdb_taxdump/"),
+    conda:
+        "../envs/utils.yaml"
+    localrule: True
+    shell:
+        """
+tmp=$(mktemp)
+awk -F'\\t' 'NR>1' {input.universe} | cut -f1,3-9 > "$tmp"
+taxonkit create-taxdump -A1 "$tmp" --out-dir {output.full_taxdump} --force \
 --rank-names "superkingdom","phylum","class","order","family","genus","species"
+rm -f "$tmp"
 """
 
 
 # find $(dirname {input.gtdb_proteomes}) -type f -name "*faa.gz" | rev | cut -f1 -d'/' | rev | cut -f1 -d'.' | sort > {output.ids}
 
 
-if REPDB_MANIFEST:
-
-    checkpoint repdb_taxonomy:
-        """Reproduce mode: use the frozen manifest as the RepDB composition."""
-        input:
-            manifest=REPDB_MANIFEST,
-        output:
-            "results/taxonomies/repdb_taxonomy.tsv",
-        localrule: True
-        conda:
-            "../envs/utils.yaml"
-        shell:
-            "cp {input.manifest} {output}"
-
-else:
-
-    checkpoint repdb_taxonomy:
-        """Create RepDB-specific taxonomy with selected eukaryotes, all viruses and all GTDB genomes"""
-        input:
-            gtdb=rules.gtdb_species_clusters.output,
-            virus=rules.virus_taxonomy.output.tax,
-            filtered_euka=rules.select_repdb_eukaryotes.output.tax,
-            full_table=rules.create_full_taxdump.output.all_taxa,
-        output:
-            "results/taxonomies/repdb_taxonomy.tsv",
-        localrule: True
-        conda:
-            "../envs/utils.yaml"
-        shell:
-            """
-cat {input.gtdb} {input.virus} {input.filtered_euka} | cut -f1 | \
-csvtk join -H -t - {input.full_table} > {output}
+checkpoint repdb_taxonomy:
+    """RepDB composition = all prokaryotes + all viruses + the selected
+    eukaryotes, taken as a subset of the universe (id + 7 ranks). Works
+    identically for a freshly-built or a pinned universe."""
+    input:
+        universe="results/universe/universe.tsv",
+        selected=rules.select_repdb_eukaryotes.output.tax,
+    output:
+        "results/taxonomies/repdb_taxonomy.tsv",
+    localrule: True
+    conda:
+        "../envs/utils.yaml"
+    shell:
+        """
+keep=$(mktemp)
+{{ cut -f1 {input.selected}; \
+   awk -F'\\t' 'NR>1 && ($2=="gtdb" || $2=="virus"){{print $1}}' {input.universe}; }} \
+   | sort -u > "$keep"
+awk -F'\\t' 'NR==FNR{{k[$1];next}} FNR>1 && ($1 in k){{print $1"\\t"$3"\\t"$4"\\t"$5"\\t"$6"\\t"$7"\\t"$8"\\t"$9}}' \
+   "$keep" {input.universe} > {output}
+rm -f "$keep"
 """
 
 
@@ -371,10 +339,11 @@ ruleorder: repdb_taxonomy > custom_dbs_taxonomy
 
 
 checkpoint custom_dbs_taxonomy:
-    """Create user-defined taxonomy for custom database"""
+    """Custom-database taxonomy: the requested ids joined to their ranks in the
+    universe (id + 7 ranks). Works with a freshly-built or a pinned universe."""
     input:
         mnemonics=get_custom_codes,
-        full_table=rules.create_full_taxdump.output.all_taxa,
+        universe="results/universe/universe.tsv",
     output:
         "results/taxonomies/{db}_taxonomy.tsv",
     localrule: True
@@ -382,5 +351,6 @@ checkpoint custom_dbs_taxonomy:
         "../envs/utils.yaml"
     shell:
         """
-csvtk join -H -t {input.mnemonics} {input.full_table} > {output}
+awk -F'\\t' 'NR>1' {input.universe} | cut -f1,3-9 | \
+csvtk join -H -t {input.mnemonics} - > {output}
 """

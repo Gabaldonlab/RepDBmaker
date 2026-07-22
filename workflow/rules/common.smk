@@ -203,8 +203,6 @@ wget -O - https://ngdc.cncb.ac.cn/p10k/static/Protein/{wildcards.genome}_protein
 
 
 rule get_uniprot_genomes:
-    input:
-        up=rules.get_uniprot_meta.output.meta,
     output:
         "results/proteomes/up/{genome}.faa.gz",
     localrule: True
@@ -212,8 +210,6 @@ rule get_uniprot_genomes:
         "../envs/utils.yaml"
     shell:
         """
-# exact match on the proteome ID column (field 1) to avoid prefix collisions
-taxid=$(awk -F'\\t' -v g="{wildcards.genome}" '$1==g {{print $2}}' {input.up})
 REST_URL="https://rest.uniprot.org/uniparc/proteome/{wildcards.genome}/stream?compressed=true&format=fasta"
 
 if wget -nc "$REST_URL" -O "{output}"; then

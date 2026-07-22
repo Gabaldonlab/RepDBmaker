@@ -65,8 +65,6 @@ _validate_cluster_levels()
 
 
 rule write_cluster_params:
-    input:
-        tax=rules.create_full_taxdump.output.all_taxa,
     output:
         params="results/dbs/{db}/cluster/cluster_params.yaml",
     localrule: True
@@ -124,8 +122,10 @@ rule get_clade:
     input:
         mmseqs=rules.make_mmseqsdb_clustering.output.db,
         mmseqs_extra=rules.make_mmseqsdb_clustering.output.db_extra,
-        tax=rules.create_full_taxdump.output.all_taxa,
-        taxdump=rules.create_full_taxdump.output.full_taxdump,
+        # universe → id + 7 ranks (cut -f1,3-9), same column layout the awk below
+        # expects (col2=superkingdom ... col8=species).
+        tax="results/universe/universe.tsv",
+        taxdump=rules.create_taxdump.output.full_taxdump,
     output:
         temp("results/dbs/{db}/cluster/tmp/{clade}/{clade}.fasta"),
     params:
@@ -146,7 +146,7 @@ mkdir -p $(dirname {output})
 
 if [[ {wildcards.clade} == "unclassified_"*  ]]; then
     echo "{wildcards.clade} is unclassified, proceeding with lookup mode"
-    awk '${params.rank}=="{wildcards.clade}"' {input.tax} | cut -f1 | grep -f - {input.mmseqs}.lookup | cut -f1 > {output}.lookup
+    awk -F'\\t' 'NR>1' {input.tax} | cut -f1,3-9 | awk '${params.rank}=="{wildcards.clade}"' | cut -f1 | grep -f - {input.mmseqs}.lookup | cut -f1 > {output}.lookup
     
     mmseqs createsubdb --subdb-mode 1 --id-mode 0 -v 3 {output}.lookup {input.mmseqs} {output}_db
     mmseqs convert2fasta {output}_db {output}

@@ -9,28 +9,44 @@
 # reproduces the release deterministically without re-running harmonization.
 
 
-rule build_universe:
-    """Assemble the enriched universe from the harmonized taxonomy + BUSCO stats.
+if REPDB_UNIVERSE:
 
-    The universe is the full set of available proteomes (every source), carrying
-    the frozen ranks and completeness the selection and taxdump need.
-    """
-    input:
-        tax=rules.create_full_taxdump.output.all_taxa,
-        up_stats=rules.get_uniprot_meta.output.stats,
-        ep_stats=rules.get_eukprot.output.euk_busco,
-        ep=rules.get_eukprot.output.euk_included,
-        p10k_stats=rules.get_p10k.output.meta,
-        gtdb_meta=rules.get_gtdb_tax.output.meta,
-        custom_table=config["files"]["new_genomes"],
-        custom_busco=_custom_busco,
-    output:
-        "results/universe/universe.tsv",
-    conda:
-        "../envs/R.yaml"
-    localrule: True
-    script:
-        "../scripts/build_universe.R"
+    rule build_universe:
+        """Pinned universe (dbs.build.repdb.universe): use the frozen file
+        directly. Taxonomy harmonization is skipped; the taxdump and the
+        eukaryote selection are (re)built deterministically from this file."""
+        input:
+            REPDB_UNIVERSE,
+        output:
+            "results/universe/universe.tsv",
+        localrule: True
+        conda:
+            "../envs/utils.yaml"
+        shell:
+            "cp {input} {output}"
+
+else:
+
+    rule build_universe:
+        """Assemble the enriched universe from the harmonized taxonomy + BUSCO
+        stats: the full set of available proteomes (every source) with the ranks
+        and completeness the selection and taxdump need."""
+        input:
+            tax=rules.create_full_taxdump.output.all_taxa,
+            up_stats=rules.get_uniprot_meta.output.stats,
+            ep_stats=rules.get_eukprot.output.euk_busco,
+            ep=rules.get_eukprot.output.euk_included,
+            p10k_stats=rules.get_p10k.output.meta,
+            gtdb_meta=rules.get_gtdb_tax.output.meta,
+            custom_table=config["files"]["new_genomes"],
+            custom_busco=_custom_busco,
+        output:
+            "results/universe/universe.tsv",
+        conda:
+            "../envs/R.yaml"
+        localrule: True
+        script:
+            "../scripts/build_universe.R"
 
 
 rule emit_repdb_ids:

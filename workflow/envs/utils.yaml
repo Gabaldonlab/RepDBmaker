@@ -6,7 +6,7 @@ dependencies:
   - ncbi-datasets-cli
   - newick_utils
   - seqkit
-  - taxonkit
+  - taxonkit>=0.18.0 # realm is an accepted rank since this version
   - jq
   - wget
   - tar

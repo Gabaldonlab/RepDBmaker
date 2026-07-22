@@ -41,18 +41,22 @@ tar -xzvf {input.db} -C {output.folder} --files-from={input.files} \
 
 
 rule gtdb_species_clusters:
+    """The GTDB composition (species representatives) is metadata, not sequence:
+    derive it from the representative-filtered GTDB metadata rather than by
+    extracting the protein tarball. This decouples the GTDB *composition*
+    (Pipeline 1) from the GTDB *sequences* (Pipeline 2). The accession
+    (RS_/GB_ GCx_<digits>.<ver>) is mapped to the RepDB id form used everywhere
+    else (drop the RS_/GB_ prefix, the version suffix and the underscores)."""
     input:
-        rules.decompress_gtdb_genomes.output,
+        rules.get_gtdb_tax.output.meta,
     output:
         "results/meta/gtdb.ids",
     conda:
         "../envs/utils.yaml"
-    group:
-        "gtdb"
-    # localrule: True
+    localrule: True
     shell:
-        """
-find {input} -type f -name "*faa.gz" | rev | cut -f1 -d'/' | rev | cut -f1 -d'.' | sort > {output}
+        r"""
+cut -f1 {input} | awk 'NR>1' | sed -E 's/^(RS_|GB_)//; s/\.[0-9]+$//; s/_//g' | sort -u > {output}
 """
 
 
