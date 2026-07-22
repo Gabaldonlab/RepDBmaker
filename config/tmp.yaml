@@ -12,7 +12,7 @@ versions:
 # build; the large downloads (GTDB tarball, EukProt archive, virus zip) and
 # the QC/Krona reports still run on the full sources. Mutually exclusive with
 # reproduce/manifest mode.
-test: false
+test: true
 
 dbs:
   type: ["diamond", "mmseqs"]  # Available database types: diamond, mmseqs, blastp
@@ -58,13 +58,13 @@ dbs:
         # size_cluster: 10
     # # Custom databases: uncomment and add your database entries
     # # Example:
-    # custom:
-    #   clusteredrepdb: 
-    #     ids: resources/repdb_v1.0.manifest.tsv
-    #     cluster: 
-    #       level: class
-    #       identity: 0.9
-    #       coverage: 0.9
+    custom:
+      clusteredrepdb: 
+        ids: resources/repdb_test.ids # resources/repdb_v1.0.manifest.tsv
+        cluster: 
+          level: class
+          identity: 0.9
+          coverage: 0.9
       # diatoms: 
       #   ids: resources/diatomeae.ids
       #   cluster: 
@@ -73,12 +73,12 @@ dbs:
       #     coverage: 0.9
       #   decontaminate:
       #     prop_euka: 0.5
-      random: 
-        ids: resources/random_500.ids
-        cluster: 
-          level: phylum
-          identity: 0.4
-          coverage: 0.3
+      # random: 
+      #   ids: resources/random_500.ids
+      #   cluster: 
+      #     level: phylum
+      #     identity: 0.4
+      #     coverage: 0.3
       # nctv: 
       #   ids: resources/nctv.ids
       #   cluster: 
