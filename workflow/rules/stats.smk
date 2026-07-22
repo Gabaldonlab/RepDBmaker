@@ -116,20 +116,46 @@ cut -f1,4- | sed 's/_rep_seq.fasta//' > {output}
 """
 
 
-# rule make_repdb_meta:
-#     input:
-#         tax=rules.create_repdb_taxdump.output.all_taxa,
-#         stats=rules.make_repdb_stats.output,
-#         up_stats=rules.get_uniprot_meta.output.stats,
-#         ep_stats=rules.get_eukprot.output.euk_busco,
-#         ep=rules.get_eukprot.output.euk_included,
-#         p10k_stats=rules.get_p10k.output.meta,
-#         custom_table=config["files"]["new_genomes"],
-#         custom_busco=config["files"]["new_genomes_busco"],
-#         contaminants=rules.get_contaminants.output
-#     output: "results/meta/repdb_meta.tsv"
-#     # log: "results/log/db/parse.log"
-#     # benchmark: "results/benchmarks/db/parse.txt"
-#     conda: "../envs/R.yaml"
-#     localrule: True
-#     script: "../scripts/analyze_stats.R"
+def _db_meta_tax(wildcards):
+    # each database's composition taxonomy: repdb_taxonomy.tsv for RepDB,
+    # <db>_taxonomy.tsv for a custom database (both are ID + 7 ranks).
+    return f"results/taxonomies/{wildcards.db}_taxonomy.tsv"
+
+
+def _db_meta_contaminants(wildcards):
+    # RepDBmaker's per-organism decontamination flagging, only when this database
+    # is decontaminated (the script degrades gracefully without it).
+    if _is_db_decon(wildcards.db):
+        return f"results/dbs/{wildcards.db}/decontaminate/contaminants.txt"
+    return []
+
+
+def _custom_busco(wildcards):
+    # optional user-provided BUSCO scores for custom proteomes
+    path = config.get("files", {}).get("new_genomes_busco")
+    return [path] if path else []
+
+
+rule make_db_meta:
+    """Per-organism provenance metadata for a database (RepDB or a custom db),
+    written to results/meta/<db>_meta.tsv. Includes the taxdump taxid.
+    """
+    input:
+        tax=_db_meta_tax,
+        stats="results/stats/{db}_stats.tsv",
+        taxdump=rules.create_full_taxdump.output.full_taxdump,
+        up_stats=rules.get_uniprot_meta.output.stats,
+        ep_stats=rules.get_eukprot.output.euk_busco,
+        ep=rules.get_eukprot.output.euk_included,
+        p10k_stats=rules.get_p10k.output.meta,
+        gtdb_meta=rules.get_gtdb_tax.output.meta,
+        custom_table=config["files"]["new_genomes"],
+        custom_busco=_custom_busco,
+        contaminants=_db_meta_contaminants,
+    output:
+        "results/meta/{db}_meta.tsv",
+    conda:
+        "../envs/R.yaml"
+    localrule: True
+    script:
+        "../scripts/analyze_stats.R"

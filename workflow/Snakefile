@@ -137,4 +137,6 @@ rule all:
             "results/stats/{db}_clustered_stats.tsv",
             db=get_clustered_database_targets(),
         ),
+        # Per-organism provenance metadata for every database (reviewer #3)
+        expand("results/meta/{db}_meta.tsv", db=get_database_targets()),
         # get_optional_targets()

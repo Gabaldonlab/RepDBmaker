@@ -22,7 +22,6 @@ It supports:
 
 Optional features include taxonomic clustering and contamination filtering.
 
-
 ## Installation
 
 ### Requirements
@@ -466,6 +465,32 @@ EukProt, custom, and — for UniProt and P10K — **both** the source schema and
 UniEuk-harmonized version (`uniprot_ncbi` vs `uniprot_unieuk`, `p10k_native` vs
 `p10k_unieuk`). Switching between a source's two datasets shows the harmonization
 directly. Open the HTML in a browser.
+
+**Per-organism provenance metadata** — rule `make_db_meta` writes
+`results/meta/<db>_meta.tsv` for **every** database it builds (`repdb_meta.tsv`
+and one per custom database), one row per organism across **all** sources
+(GTDB, NCBI Virus, UniProt, EukProt, P10K, custom). RepDB integrates sources with
+different foundations, and the flat FASTA hides that heterogeneity; this table
+propagates the intermediate state so it can be filtered on rather than silently
+inherited. Columns:
+
+| column | meaning |
+|--------|---------|
+| `taxid` | the taxid assigned in the taxdump (the exact id the DIAMOND/MMseqs/BLAST indices use) |
+| `source_db` | originating database (from superkingdom + id prefix) |
+| `taxonomy_authority` | which taxonomy the ranks come from — **GTDB**, **ICTV/NCBI** or **UniEuk**. A `class` (or any rank) is *not* the same concept across these; do not compare ranks across authorities blindly. |
+| `k`…`s` | the 7-rank lineage as stored in RepDB |
+| `data_type` | genome / transcriptome / single-cell / SAG / MAG … |
+| `completeness`, `completeness_metric` | a completeness score **and the metric that produced it** — BUSCO is lineage-specific and CheckM2 is prokaryote-specific, so scores are **only comparable within the same metric** (a 90% BUSCO in a fungus ≠ 90% in a ciliate). Sources with no completeness concept (viruses) are `NA`. |
+| `upstream_filter` | the QC/decontamination the **source** applied before RepDBmaker |
+| `n_contaminants`, `prop_contaminants` | **RepDBmaker's** own decontamination flagging for the organism (`0` when decontamination was not run) |
+| `num_seqs`, `sum_len`, `min_len`, `avg_len`, `max_len` | seqkit size statistics |
+
+Typical uses: restrict completeness comparisons to one `completeness_metric`;
+take single-`source_db` subsets when uniform decontamination semantics are needed;
+or find organisms from sources whose `upstream_filter` is most aggressive when
+looking for over-removed legitimate signal. These make the source heterogeneity
+explicit rather than leaving users subject to it.
 
 ## Utilities
 

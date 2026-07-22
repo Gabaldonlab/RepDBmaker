@@ -348,6 +348,11 @@ def get_custom_codes(wildcards):
     raise ValueError(f"Custom database '{wildcards.db}' not found in config")
 
 
+# both checkpoints can produce results/taxonomies/repdb_taxonomy.tsv (the custom
+# rule via its {db} wildcard); prefer the dedicated RepDB checkpoint for it.
+ruleorder: repdb_taxonomy > custom_dbs_taxonomy
+
+
 checkpoint custom_dbs_taxonomy:
     """Create user-defined taxonomy for custom database"""
     input:
