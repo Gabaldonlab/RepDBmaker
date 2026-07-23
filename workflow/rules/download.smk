@@ -208,7 +208,7 @@ rule get_uniprot_meta:
 wget -O - https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/README | \
 grep ^UP | awk '$4=="eukaryota"' > {output.meta} 2> {log}
 
-wget "https://rest.uniprot.org/proteomes/stream?fields=upid%2Corganism%2Corganism_id%2Cprotein_count%2Cbusco%2Ccpd&format=tsv&query=%28*%29+AND+%28proteome_type%3A1%29+AND+%28superkingdom%3AEukaryota%29" \
+wget "https://rest.uniprot.org/proteomes/stream?fields=upid%2Corganism%2Corganism_id%2Cprotein_count%2Cbusco%2Ccpd&format=tsv&query=%28reference%3Atrue%29+AND+%28superkingdom%3AEukaryota%29" \
 -O {output.stats} 2>> {log}
 cut -f1,2 {output.meta} | taxonkit reformat -I 2 -r "" -P --data-dir {input.taxdump} | \
 cut -f 1,3- | sed 's/k__/d__/' > {output.ncbi_tax}

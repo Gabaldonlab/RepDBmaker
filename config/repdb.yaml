@@ -28,6 +28,13 @@ dbs:
       #   cp results/universe/universe.tsv resources/repdb_v1.0.universe.tsv
       # universe: resources/repdb_v1.0.universe.tsv
       #
+      # Release custom proteomes come from a versioned bundle (tar.gz with
+      # proteomes/CUS<id>.faa.gz + custom_busco.tsv + custom_metadata.tsv). Build
+      # it once with `snakemake package_custom` (from data/custom_proteomes/), then
+      # pin it here (a local path for now; a URL+sha256 later). Unset -> the old
+      # local-Fasta paths in the custom table are used.
+      # custom_bundle: resources/repdb_custom_bundle.tar.gz
+      #
       # Eukaryote downsampling: how the redundant public eukaryotic proteomes
       # are thinned before building RepDB. The whole `downsample` block is
       # optional; omit it (or any key) to fall back to the defaults shown here.

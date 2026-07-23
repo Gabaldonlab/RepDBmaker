@@ -131,7 +131,10 @@ def _db_meta_contaminants(wildcards):
 
 
 def _custom_busco(wildcards):
-    # optional user-provided BUSCO scores for custom proteomes
+    # custom BUSCO/completeness: from the pinned bundle (release custom) if set,
+    # else an optional user-provided file, else nothing.
+    if CUSTOM_BUNDLE:
+        return "results/custom_bundle/custom_busco.tsv"
     path = config.get("files", {}).get("new_genomes_busco")
     return [path] if path else []
 

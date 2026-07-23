@@ -36,12 +36,14 @@ if "dbs" in config and "type" in config["dbs"]:
 include: "rules/download.smk"
 include: "rules/gtdb.smk"
 include: "rules/taxonomy.smk"
+include: "rules/custom_bundle.smk"
 include: "rules/common.smk"
 include: "rules/db.smk"
 include: "rules/cluster.smk"
 include: "rules/stats.smk"
 include: "rules/decontaminate.smk"
 include: "rules/universe.smk"
+include: "rules/release.smk"
 
 
 # Test mode subsamples the fetched sequences, so it cannot coexist with
@@ -164,3 +166,11 @@ rule build:
     generated or pinned via dbs.build.repdb.universe)."""
     input:
         BUILD_TARGETS
+
+
+rule package_custom:
+    """Author-only (custom curation): build the versioned release-custom bundle
+    (proteomes + BUSCO + metadata) from data/custom_proteomes/CUS<id>.fa. Upload
+    it (eventually Zenodo) and pin dbs.build.repdb.custom_bundle to it."""
+    input:
+        "results/custom/repdb_custom_bundle.tar.gz"
