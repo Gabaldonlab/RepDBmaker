@@ -255,6 +255,16 @@ df <- suppressWarnings(suppressMessages(
   read_tsv(table_path, col_types = cols(.default = "c"), name_repair = "minimal")))
 df <- df[, !is.na(names(df)) & names(df) != "", drop = FALSE]
 
+# domains (d__) actually present in the table, so we only parse the reference for
+# domains that occur - the GTDB taxonomy is huge and slow to parse, so it is read
+# only when there is a prokaryotic custom proteome to check.
+present_domains <- character(0)
+if ("Lineage" %in% names(df)) {
+  lin <- trimws(df[["Lineage"]])
+  lin <- lin[!is.na(lin) & lin != ""]
+  present_domains <- unique(trimws(sub("^d__", "", sub(";.*", "", lin))))
+}
+
 # optional reference taxonomies for the conflict check, mapped to the domains
 # they cover (prokaryote reference serves both Bacteria and Archaea).
 ref_by_domain <- list()
@@ -265,7 +275,7 @@ for (spec in list(list("euk", "Eukaryota"),
                   list("prok", c("Bacteria", "Archaea")),
                   list("virus", "Viruses"))) {
   path <- reference_paths[[spec[[1]]]]
-  if (usable_ref(path)) {
+  if (any(spec[[2]] %in% present_domains) && usable_ref(path)) {
     message(sprintf("Checking %s lineages against reference: %s",
                     paste(spec[[2]], collapse = "/"), path))
     info <- parse_reference(path)
