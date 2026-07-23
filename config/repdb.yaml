@@ -33,7 +33,7 @@ dbs:
       # it once with `snakemake package_custom` (from data/custom_proteomes/), then
       # pin it here (a local path for now; a URL+sha256 later). Unset -> the old
       # local-Fasta paths in the custom table are used.
-      # custom_bundle: resources/repdb_custom_bundle.tar.gz
+      custom_bundle: results/custom/repdb_custom_bundle.tar.gz
       #
       # Eukaryote downsampling: how the redundant public eukaryotic proteomes
       # are thinned before building RepDB. The whole `downsample` block is
@@ -109,13 +109,14 @@ dbs:
 # Right now there is no option to do that as temp because it seems too complicated to manage :=)
 
 files:
+  # folder holding the custom proteome files, one per row named by its CUS id
+  # (CUS<id>.faa.gz or CUS<id>.fa). Used to build the bundle and, when no bundle
+  # is pinned, to fetch the sequences directly.
+  custom_proteomes: "resources/custom_proteomes"
   clades_to_keep: "resources/clades_tokeep.txt"
   genomes_to_exclude: "resources/exclude.txt"
   new_genomes: "resources/custom_genomes_repdb.csv"
-  # optional: BUSCO/completeness scores for custom proteomes (id<TAB>completeness),
-  # carried into the universe / provenance metadata.
+
+  # optional: completeness scores for custom proteomes (id<TAB>completeness),
+  # carried into the universe. Left out -> custom completeness is NA.
   # new_genomes_busco: "resources/custom_busco.tsv"
-  # optional: a committed RepDB selection (id list) to diff a fresh selection
-  # against; rule repdb_ids_diff writes results/qc/repdb_ids_diff.txt (soft, not
-  # a gate). See docs/split-pipeline.md.
-  # repdb_ids_reference: "resources/repdb_v1.0.ids"
