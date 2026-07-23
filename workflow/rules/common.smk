@@ -157,12 +157,12 @@ def gtdb_custom(wildcards):
 
 rule get_custom_genomes:
     input:
-        custom_table=config["files"]["new_genomes"],
         # gate: the custom table must pass validation before it is used
         valid=rules.validate_custom_proteomes.output,
-        # release custom comes from the versioned bundle when one is pinned;
-        # user custom (or no bundle) falls back to the local Fasta path.
+        # release custom comes from the pinned bundle; otherwise the sequence is
+        # taken from the custom-proteomes folder (files.custom_proteomes) by id.
         bundle=rules.unpack_custom_bundle.output.proteomes if CUSTOM_BUNDLE else [],
+        local=lambda wc: [] if CUSTOM_BUNDLE else custom_proteome_path(wc.genome),
     output:
         "results/proteomes/cus/{genome}.faa.gz",
     localrule: True
@@ -170,12 +170,13 @@ rule get_custom_genomes:
         "../envs/utils.yaml"
     shell:
         """
-if [ -n "{input.bundle}" ] && [ -f "{input.bundle}/{wildcards.genome}.faa.gz" ]; then
+if [ -n "{input.bundle}" ]; then
     cp "{input.bundle}/{wildcards.genome}.faa.gz" {output}
 else
-    # exact match on the ID column (field 1) to avoid prefix collisions (CUS001 vs CUS0010)
-    file=$(awk -F'\\t' -v g="{wildcards.genome}" '$1==g {{print $4}}' {input.custom_table})
-    cat $file | gzip > {output}
+    case "{input.local}" in
+        *.gz) cp "{input.local}" {output} ;;
+        *)    gzip -c "{input.local}" > {output} ;;
+    esac
 fi
 """
 

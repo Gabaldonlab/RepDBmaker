@@ -1,7 +1,0 @@
-name: busco
-channels:
-  - conda-forge
-  - bioconda
-dependencies:
-  - busco
-  - jq

@@ -13,7 +13,6 @@
 #   ID        unique mnemonic, must start with 'CUS'
 #   Species   organism name (single organism per row)
 #   Data_type e.g. genome / transcriptome (informational)
-#   Fasta     path to the proteome FASTA for this entry
 #   Lineage   exactly 7 ';'-separated ranks with the prefixes
 #             d__ p__ c__ o__ f__ g__ s__ , e.g.
 #             d__Eukaryota;p__Discoba;c__Jakobida;o__Jakobida;f__Ophirinina;g__Agogonia;s__Agogonia voluta
@@ -26,9 +25,7 @@
 #   ERROR   lineage not exactly 7 ranks    (else separate() mangles it)
 #   ERROR   lineage rank has wrong/missing prefix (d__,p__,c__,o__,f__,g__,s__)
 #   ERROR   lineage rank empty after its prefix
-#   ERROR   empty Fasta path
-#   ERROR   duplicate Fasta path
-#   ERROR   Fasta path missing or empty     (only with --check-fasta)
+#   ERROR   duplicate Fasta path (only if a legacy Fasta column is present)
 #   ERROR   domain (d__) is not a recognized superkingdom
 #           (Eukaryota / Bacteria / Archaea / Viruses)
 #   ERROR   Species binomial does not match the s__ rank (mislabel / cross-organism row)
@@ -57,7 +54,7 @@
 
 suppressMessages(library(tidyverse))
 
-REQUIRED_COLUMNS <- c("ID", "Species", "Data_type", "Fasta", "Lineage")
+REQUIRED_COLUMNS <- c("ID", "Species", "Data_type", "Lineage")
 RESERVED_PREFIXES <- c("UP", "EP", "P10")
 RANK_PREFIXES <- c("d__", "p__", "c__", "o__", "f__", "g__", "s__")
 RANK_LABELS <- c("domain", "phylum", "class", "order", "family", "genus", "species")
@@ -326,7 +323,7 @@ for (i in seq_len(nrow(df))) {
     if (is.na(v)) "" else trimws(v)
   }
   rid <- get("ID")
-  if (rid == "" && get("Lineage") == "" && get("Fasta") == "") next  # blank line
+  if (rid == "" && get("Lineage") == "") next  # blank line
   n_rows <- n_rows + 1L
   where <- sprintf("line %d (ID=%s)", lineno, if (rid == "") "<empty>" else rid)
 
@@ -387,19 +384,17 @@ for (i in seq_len(nrow(df))) {
     custom_lineages[[length(custom_lineages) + 1]] <- list(where = where, values = values)
   }
 
-  # Fasta path
-  fasta <- get("Fasta")
-  if (fasta == "") {
-    add_error(sprintf("%s: empty Fasta path", where))
-  } else {
-    if (!is.null(seen_fasta[[fasta]])) {
-      add_error(sprintf("%s: duplicate Fasta path, first seen at line %d",
-                        where, seen_fasta[[fasta]]))
-    } else {
-      seen_fasta[[fasta]] <- lineno
-    }
-    if (check_fasta && (!file.exists(fasta) || file.info(fasta)$size == 0)) {
-      add_error(sprintf("%s: Fasta path missing or empty: %s", where, fasta))
+  # Optional legacy Fasta column (proteomes now live in files.custom_proteomes,
+  # one file per CUS id); only checked for duplicates if present.
+  if ("Fasta" %in% names(df)) {
+    fasta <- get("Fasta")
+    if (fasta != "") {
+      if (!is.null(seen_fasta[[fasta]])) {
+        add_error(sprintf("%s: duplicate Fasta path, first seen at line %d",
+                          where, seen_fasta[[fasta]]))
+      } else {
+        seen_fasta[[fasta]] <- lineno
+      }
     }
   }
 }
