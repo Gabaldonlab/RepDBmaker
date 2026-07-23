@@ -106,10 +106,13 @@ wget -O {output.ar_meta} {params.ar_meta_url} 2>> {log}
 
 zcat {output.bac_meta} {output.ar_meta} | csvtk filter2 -t -f'$gtdb_representative=="t"' > {output.meta}
 
-cat {output.bac} {output.ar} | awk 'BEGIN{{OFS=FS="\\t"}} {{ $1 = substr($1, 4, 13) }} 1' | \
+reps=$(mktemp)
+csvtk cut -t -f accession {output.meta} | sed 1d > "$reps"
+cat {output.bac} {output.ar} | csvtk join -H -t -f 1 - "$reps" | \
+awk 'BEGIN{{OFS=FS="\\t"}} {{ $1 = substr($1, 4, 13) }} 1' | \
 sed 's/_//' > {output.tax}
+rm -f "$reps"
 """
-# in the taxonomy there are all gtdb entries not only reference species, this may be good for those clades without?
 
 # | src/filter_gtdb.R
 rule get_gtdb_genomes:

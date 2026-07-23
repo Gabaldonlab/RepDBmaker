@@ -66,8 +66,8 @@ rule make_db_map:
     input:
         idmap=rules.make_db_fasta.output.idmap,
     output:
-        headermap="results/dbs/{db}/{db}.map",
-        noheadermap="results/dbs/{db}/{db}_nohead.map",
+        headermap=temp("results/dbs/{db}/{db}.map"),
+        noheadermap=temp("results/dbs/{db}/{db}_nohead.map"),
     # localrule: True
     # group: "create_db"
     conda:
@@ -162,8 +162,6 @@ diamond makedb --in {input.fa} -d {output} --threads {threads} \
 --taxonnodes {input.taxdump}/nodes.dmp --taxonmap {input.taxidmap} 2> {log}
 touch {output}
 """
-
-
 # --taxonnodes {input.taxdump}/nodes.dmp --taxonnames {input.taxdump}/names.dmp
 
 
