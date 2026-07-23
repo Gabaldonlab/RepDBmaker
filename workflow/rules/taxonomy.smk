@@ -153,8 +153,10 @@ rule eukaryotes_taxonomy_ref:
 
 
 # Per-domain references for the custom-proteome conflict check. In pinned-universe
-# mode these rules are simply not in the DAG (harmonization is skipped), so no
-# manifest guard is needed.
+# mode these rules are simply not in the DAG (harmonization is skipped). The script
+# only *parses* the reference for a domain that actually occurs in the custom
+# table, so the huge GTDB taxonomy is not read unless a prokaryotic custom row
+# exists.
 def validate_reference_input(wildcards):
     return rules.eukaryotes_taxonomy_ref.output
 
