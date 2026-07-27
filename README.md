@@ -175,6 +175,56 @@ To run the full workflow:
 snakemake -j 14
 ```
 
+## Building RepDB
+
+The workflow is two phases that meet at the **universe** — the enriched table of
+every available proteome (id, source, 7 ranks, completeness). Both phases use the
+same `config/repdb.yaml`; you pick the phase with the target:
+
+| command | produces |
+|---------|----------|
+| `snakemake sample` | **Pipeline 1 (curation)** — `results/universe/universe.tsv` + `results/universe/repdb.ids` + the taxonomy QC (no sequences fetched) |
+| `snakemake build` | **Pipeline 2 (construction)** — the databases: `repdb` and `clusterrepdb` (+ decontamination, stats, `_meta.tsv`) |
+| `snakemake` | both (`all`) |
+
+`build` produces the universe first if needed, so it is self-contained; run
+`sample` on its own to stop at the universe and review it before building.
+
+### First release (v1)
+
+```bash
+# 0. put the curated custom proteomes in resources/custom_proteomes/ (CUS<id>.fa|.faa.gz)
+snakemake sample --sdm conda -j 8     # universe + selection + QC  -> review
+snakemake build  --sdm conda -j 8     # repdb + clusterrepdb
+```
+
+`clusterrepdb` is a clustered version of RepDB (the `repdb.ids` selection,
+clustered per class) — configured under `dbs.build.custom` in `config/repdb.yaml`.
+Since `custom_bundle` there points at a rule output, `build` auto-packages the
+release custom bundle from `resources/custom_proteomes/`; unset `custom_bundle`
+to read that folder directly instead.
+
+Freeze the run as a reproducible, versioned release:
+
+```bash
+snakemake resources/releases/v1/release.yaml   # stages resources/releases/v1/
+# then upload the heavy assets and commit the light ones (see resources/releases/README.md)
+```
+
+### Reproducing a release / building your own database
+
+Pin a published universe so the harmonization is skipped entirely (fast, drift-
+proof) and build whatever subset you want. `config/example.yaml` is a ready
+template:
+
+```bash
+snakemake build --configfile config/example.yaml --sdm conda -j 8
+```
+
+It sets `dbs.build.repdb.universe: resources/releases/v1/universe.tsv` (download
+the asset first) and defines a custom db from your own id list, with optional
+clustering / decontamination.
+
 ## Troubleshooting
 
 Sometimes things can go wrong while downloading a proteome. That is why there is a step (rule `db_stats`) that will fail if any gzipped fasta is malformed and will block the creation of the database fasta. 

@@ -16,9 +16,6 @@ resources/Cohen_2024
 TODO.MD
 Dockerfile
 
-# custom-curation inputs (the versioned bundle is the tracked artifact)
-data/custom_proteomes/
-resources/busco_db/
 
 # heavy release assets live on GitHub Releases / Zenodo, not in git
 resources/releases/*/universe.tsv

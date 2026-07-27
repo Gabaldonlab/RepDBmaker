@@ -1,0 +1,47 @@
+# EXAMPLE user config — build your OWN database(s) from a published RepDB
+# universe, without re-running the (slow, fragile) taxonomy harmonization.
+#
+#   snakemake build --configfile config/example.yaml --sdm conda -j 8
+#
+# Pin the universe so Pipeline 1 (harmonization/selection) is skipped: the
+# taxdump and every db's taxonomy come straight from the frozen file, and only
+# the sequences you actually need are fetched.
+
+versions:                       # must match the pinned universe's release
+  gtdb: "release226"
+  unieuk: "0.0.1-pre_release"
+  EukProt: "3"
+  taxdump: "2026-07-01"
+
+dbs:
+  type: ["diamond"]             # diamond / mmseqs / blastp (any subset)
+  build:
+    repdb:
+      # the published universe you are building against (download it first)
+      universe: resources/releases/v1/universe.tsv
+
+    # each custom db = a chosen subset of the universe, by an id list (one
+    # universe id per line: UP.. / EP.. / P10K.. / GCA.. / GCF.. / CUS..).
+    custom:
+      mydb:
+        ids: resources/my_ids.txt
+        # optional: taxonomy-aware clustering (drop the block to skip)
+        cluster:
+          level: order          # phylum / class / order / family / genus
+          identity: 0.8
+          coverage: 0.8
+        # optional: contamination filtering (drop the block to skip)
+        decontaminate:
+          identity: 0.9
+          coverage: 0.5
+          cov_mode: 3
+          prop_euka: 0.5
+          filter: soft           # soft = flag only; hard = remove flagged seqs
+
+files:
+  # your own custom proteomes (folder of CUS<id>.faa.gz | .fa) + their metadata
+  # table; only needed if your ids include CUS entries not in the published bundle.
+  custom_proteomes: "resources/custom_proteomes"
+  new_genomes: "resources/custom_genomes_repdb.csv"
+  clades_to_keep: "resources/clades_tokeep.txt"
+  genomes_to_exclude: "resources/exclude.txt"

@@ -63,16 +63,18 @@ dbs:
         # properties) is written in both modes.
         filter: soft
         # size_cluster: 10
-    # # Custom databases: uncomment and add your database entries
-    # # Example:
-    # custom:
-    #   clusteredrepdb: 
-    #     ids: resources/repdb_v1.0.manifest.tsv
-    #     cluster: 
-    #       level: class
-    #       identity: 0.9
-    #       coverage: 0.9
-      # diatoms: 
+    # Custom databases are subsets of the universe (an id list), optionally
+    # clustered / decontaminated. clusterrepdb = a clustered version of RepDB:
+    # the RepDB selection (results/universe/repdb.ids), clustered per class.
+    custom:
+      clusterrepdb:
+        ids: results/universe/repdb.ids
+        cluster:
+          level: class
+          identity: 0.9
+          coverage: 0.9
+      # more examples (uncomment / adapt):
+      # diatoms:
       #   ids: resources/diatomeae.ids
       #   cluster: 
       #     level: genus
