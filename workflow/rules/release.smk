@@ -83,10 +83,12 @@ rule make_release:
         with open(output.manifest, "w") as fh:
             yaml.safe_dump(manifest, fh, sort_keys=False)
 
-        # --- how to publish ----------------------------------------------------
+        # --- publish: print copy-paste commands --------------------------------
         upload = " ".join(f"{reldir}/{a['file']}" for a in assets.values())
-        print(f"\n=== RepDB {version} staged in {reldir}/ (software {software}) ===")
-        print("commit (git):   config.yaml  repdb.ids  release.yaml")
-        print(f"upload (heavy): {upload}")
-        print(f"\n  gh release create {version} {upload} "
+        light = f"{output.config} {output.ids} {output.manifest}"
+        print(f"\n=== RepDB {version} staged in {reldir}/ (software {software}) ===\n")
+        print("1) upload the heavy assets to the GitHub release (not git):")
+        print(f"   gh release create {version} {upload} "
               f"--title 'RepDB {version}' --generate-notes\n")
+        print("2) commit the light, versionable files (git):")
+        print(f"   git add {light} && git commit -m 'RepDB {version} release'\n")

@@ -19,5 +19,5 @@ benchmark:
 
   tax_annot: "resources/Cohen_2024/merged.fasta.transdecoder-estimated-taxonomy.LCA.phyloDB.within3percent.AddRef.RefSeq.out"
   source_seqs: "resources/Cohen_2024/merged.fasta.transdecoder.pep"
-  n_seqs: 5000
+  n_seqs: 20000
   lca_mode: 3

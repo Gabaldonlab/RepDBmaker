@@ -59,7 +59,7 @@ rule make_db_fasta:
         "../envs/python.yaml"
     # group: "create_db"
     script:
-        "../scripts/parse_gnm_v2.py"
+        "../scripts/parse_gnm_v3.py"
 
 
 rule make_db_map:

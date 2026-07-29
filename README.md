@@ -100,7 +100,7 @@ needs.
 | Level | What is fixed | How |
 |-------|---------------|-----|
 | **Parameter** | thresholds, which DBs, which subsets | the config file |
-| **Composition** | *which* proteomes and their taxonomy | a frozen manifest (below) |
+| **Composition** | *which* proteomes and their taxonomy | a pinned **universe** (a release, below) |
 | **Artifact** | exact tool builds and, ideally, the exact sequences | conda lockfiles + Docker digest + a Zenodo deposit of the FASTA |
 
 ### Pinned tool versions (conda lockfiles)
@@ -119,45 +119,61 @@ and **BLAST 2.17.0** (the manuscript versions); the separate benchmark
 environment uses **DIAMOND 2.1.21**, which is needed only to read a BLAST
 database and is not used to build RepDB.
 
-### Pinned source databases
+### Pinned source snapshots
 
-External sources drift, so pin the snapshots in `config/repdb.yaml`:
+External sources drift, so pin the snapshots under `versions:` in
+`config/repdb.yaml`:
 
-- `gtdb_version` — a specific release (e.g. `release226`), never `latest`.
-- `unieuk_version` — the exported UniEuk taxonomy version.
+- `gtdb` — a specific release (e.g. `release226`), never `latest`.
+- `unieuk` — the exported UniEuk taxonomy version.
+- `EukProt` — the EukProt version.
+- `taxdump` — a dated NCBI taxdump archive (or `latest`).
 
-For sources without stable versioned hosting (NCBI taxdump, UniProt release,
-RefSeq virus catalog, P10K), record the retrieval date alongside your run.
+For sources without stable versioned hosting (UniProt reference-proteome
+release, RefSeq virus catalog, P10K), the **universe** below is what actually
+freezes them — record the retrieval date alongside your run too.
 
-### Reproducing an exact composition (frozen manifest)
+### Reproducing a release (pinned universe) — two configs
 
-Because several sources are unversioned, running the full selection a year later
-yields a *different* set of proteomes. To rebuild the exact composition of a
-previous run (e.g. RepDB v1.0) regardless of source drift, freeze its manifest —
-`results/taxonomies/repdb_taxonomy.tsv`, a table of each selected ID plus its
-seven taxonomic ranks — and feed it back in:
+Because several sources are unversioned, re-running the full selection later
+yields a *different* set of proteomes. The fix is to freeze the **universe** (the
+enriched table of every available proteome — id, source, 7 ranks, completeness)
+and reproduce from it. This splits a release cleanly into **two configs**:
 
-```bash
-# 1. after a full run, freeze the selected composition
-cp results/taxonomies/repdb_taxonomy.tsv resources/repdb_v1.0.manifest.tsv
+1. **Curation config** — `config/repdb.yaml`. Generates the universe from the
+   live sources (this is the slow, drift-prone part):
 
-# 2. point the config at it
-#    dbs:
-#      build:
-#        repdb:
-#          manifest: resources/repdb_v1.0.manifest.tsv
+   ```bash
+   snakemake sample --configfile config/repdb.yaml --sdm conda -j 8
+   #   -> results/universe/universe.tsv  +  results/universe/repdb.ids
+   ```
 
-# 3. rebuild — selection and taxonomy harmonization are skipped; only the
-#    frozen IDs are fetched and assembled
-snakemake -j 14
-```
+2. **Freeze it into a build config** — `make_release` copies the universe (and
+   the custom bundle) into `resources/releases/<v>/` and writes
+   `resources/releases/<v>/config.yaml`, a self-contained **build config** that
+   *pins* those frozen assets:
 
-With `manifest` set, the `repdb_taxonomy` selection and the whole taxonomy
-harmonization step are bypassed, so the build no longer depends on the live
-metadata that decides *which* proteomes are included. The sequences themselves
-are still fetched from their sources, so this guarantees composition-level (not
-bitwise) reproducibility; deposit the assembled FASTA on Zenodo for a bitwise
-artifact.
+   ```bash
+   snakemake resources/releases/v1/release.yaml
+   #   copies universe.tsv (+ custom_bundle.tar.gz) into resources/releases/v1/
+   #   and writes resources/releases/v1/config.yaml  with:
+   #     dbs: {build: {repdb: {universe: resources/releases/v1/universe.tsv, ...}}}
+   ```
+
+3. **Build config** — `resources/releases/<v>/config.yaml`. Rebuild the databases
+   from the pinned universe; taxonomy harmonization is skipped, the taxdump is the
+   full pinned universe, and the selection re-runs deterministically on it:
+
+   ```bash
+   snakemake build --configfile resources/releases/v1/config.yaml --sdm conda -j 8
+   ```
+
+Only the sequences are fetched at build time, so this guarantees
+composition-level (not bitwise) reproducibility. Commit the light files
+(`config.yaml`, `repdb.ids`, `release.yaml`) and publish the heavy assets
+(`universe.tsv`, `custom_bundle.tar.gz`) as GitHub-release assets / a Zenodo
+deposit; deposit the assembled FASTA too for a bitwise artifact. See
+`resources/releases/README.md`.
 
 ## Quick start
 
@@ -397,7 +413,7 @@ Notes on the implicit specification (made explicit here):
   places a *known* taxon under a conflicting parent (e.g. a genus that the source
   taxonomy puts in a different family) is rejected. Genuinely novel taxa (absent
   from the reference) are accepted. A domain with no reference wired in (e.g. in
-  reproduce/manifest mode) is validated for schema only.
+  reproduce mode with a pinned universe) is validated for schema only.
 - **All seven ranks must be present and non-empty** (`d__` through `s__`), because
   the taxdump is built by splitting the lineage into exactly these columns.
 
