@@ -184,9 +184,12 @@ rule cluster_clade:
     shell:
         """
 clusterdir=$(dirname {output.seqs})
+tmp=$(mktemp -d "${{TMPDIR:-/tmp}}/mmseqs.XXXXXX")
 
-mmseqs easy-linclust {input} $clusterdir/{wildcards.clade} $TMPDIR \
+mmseqs easy-linclust {input} $clusterdir/{wildcards.clade} "$tmp" \
 --min-seq-id {params.identity} -c {params.coverage} --cluster-mode 2 -e 0.001 --threads {threads}
+
+rm -rf "$tmp"
 rm $clusterdir/{wildcards.clade}_all_seqs.fasta
 """
 
