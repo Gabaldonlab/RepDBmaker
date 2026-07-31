@@ -66,8 +66,8 @@ rule make_db_map:
     input:
         idmap=rules.make_db_fasta.output.idmap,
     output:
-        headermap=temp("results/dbs/{db}/{db}.map"),
-        noheadermap=temp("results/dbs/{db}/{db}_nohead.map"),
+        headermap="results/dbs/{db}/{db}.map",
+        noheadermap="results/dbs/{db}/{db}_nohead.map",
     # localrule: True
     # group: "create_db"
     conda:
