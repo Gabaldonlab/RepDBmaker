@@ -199,7 +199,7 @@ rule merge_clustered:
         seqs=repr_all_clades,
         clusters=cluster_all_clades,
     output:
-        seqs=temp("results/dbs/{db}/{db}_clustered.fa.gz"),
+        seqs="results/dbs/{db}/{db}_clustered.fa.gz",
         clusters="results/dbs/{db}/{db}_clusters.tsv",
     # localrule: True
     conda:
