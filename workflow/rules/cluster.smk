@@ -180,7 +180,7 @@ rule cluster_clade:
         "../envs/homology.yaml"
     localrule: True
     # group: "cluster_db"
-    threads: 2
+    threads: 8
     shell:
         """
 clusterdir=$(dirname {output.seqs})
