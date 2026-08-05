@@ -87,7 +87,15 @@ checkpoint db_clades:
     wildcard_constraints:
         db=_C_PARENTS,
     input:
-        "results/taxonomies/{db}_taxonomy.tsv",
+        # id + 7 ranks for the FULL selection ...
+        tax="results/taxonomies/{db}_taxonomy.tsv",
+        # ... intersected with the genomes actually built into this db. In test
+        # mode genome_table.tsv is subsampled (its inputs go through
+        # _test_subset), so without this intersection db_clades would list every
+        # clade in the full taxonomy and the empty ones would make cluster_clade
+        # fail on empty input. In a full run the two sets coincide, so this is a
+        # no-op. genome_table col2 (file_code) == taxonomy col1 (id).
+        table="results/dbs/{db}/genome_table.tsv",
     output:
         "results/dbs/{db}/cluster/{db}_clades.txt",
     params:
@@ -98,7 +106,12 @@ checkpoint db_clades:
     conda:
         "../envs/utils.yaml"
     shell:
-        "cut -f{params.rank} {input} | sort -u | grep . > {output}"
+        """
+cut -f2 {input.table} | sort -u > {output}.codes
+awk -F'\\t' 'NR==FNR{{present[$1]; next}} ($1 in present)' {output}.codes {input.tax} | \
+cut -f{params.rank} | sort -u | grep . > {output}
+rm -f {output}.codes
+"""
 
 
 # Read taxonomic clades from GTDB taxonomy file
