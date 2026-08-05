@@ -93,8 +93,9 @@ def get_database_targets():
 
 
 def get_clustered_database_targets():
-    """Return databases that need cluster-specific .fa input"""
-    return [db for db in get_database_targets() if _is_db_clustered(db)]
+    """Real dbs that declare a `cluster` block (each spawns a `<db>_clustered`
+    sibling). The clustering scratch + params live under the parent db."""
+    return [db for db in get_database_targets() if _has_cluster_variant(db)]
 
 
 def get_decontaminated_database_targets():
@@ -128,11 +129,23 @@ SAMPLE_TARGETS = [
        "results/qc/krona/repdb_krona.html"] if not REPDB_UNIVERSE else []),
 ]
 
+# Databases whose FULL (unclustered) indices we build. A db with a clustered
+# variant and `cluster.keep_full: false` is treated as a disposable intermediate
+# (its own indices are not built; only its `<db>_clustered` sibling ships).
+FULL_INDEX_DBS = [
+    db for db in get_database_targets()
+    if not (_has_cluster_variant(db) and not _cluster_keep_full(db))
+]
+
 # Pipeline 2 — the databases built from the universe (+ their clustering,
 # decontamination, stats and provenance metadata).
 BUILD_TARGETS = [
+    # full-db search indices
     *expand("results/dbs/{db}/{db}_{dbtype}",
-            db=get_database_targets(), dbtype=config["dbs"]["type"]),
+            db=FULL_INDEX_DBS, dbtype=config["dbs"]["type"]),
+    # clustered-variant search indices (first-class sibling dbs)
+    *expand("results/dbs/{cdb}/{cdb}_{dbtype}",
+            cdb=CLUSTERED_DBS, dbtype=config["dbs"]["type"]),
     *expand("results/dbs/{db}/cluster/cluster_params.yaml",
             db=get_clustered_database_targets()),
     *expand("results/dbs/{db}/decontaminate/decontaminate_params.yaml",
@@ -222,13 +235,20 @@ rule cleanup:
         else:
             for db in get_database_targets():
                 final = _final_db_fa(db)
-                # fasta chain intermediates that are not the final distributable
-                for fa in (_fa_raw(db), _fa_decontaminated(db)):
-                    if fa != final:
-                        _rm(fa)
-                # clustering scratch: the mmseqs DB used only to slice clades +
-                # the per-clade fastas/clusters under cluster/tmp
-                if _is_db_clustered(db):
+                has_var = _has_cluster_variant(db)
+                # `cluster.keep_full: false` -> the full db is disposable too.
+                drop_full = has_var and not _cluster_keep_full(db)
+
+                # raw is disposable when it isn't the final (db is decontaminated),
+                # or when we're dropping the full db entirely.
+                if _fa_raw(db) != final or drop_full:
+                    _rm(_fa_raw(db))
+                if drop_full:
+                    _rm(final)  # the decontaminated full fasta, if that was final
+                if has_var:
+                    # the parent-side clustered fasta is hard-linked into the
+                    # sibling db, so removing the parent copy is safe
+                    _rm(_fa_clustered(db))
                     _rm(f"results/dbs/{db}/cluster/{db}_mmseqs")
                     for ext in mmseqs_ext:
                         _rm(f"results/dbs/{db}/cluster/{db}_mmseqs{ext}")

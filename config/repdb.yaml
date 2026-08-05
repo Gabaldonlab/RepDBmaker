@@ -70,16 +70,25 @@ dbs:
         # properties) is written in both modes.
         filter: soft
         # size_cluster: 10
+      # Clustering is ADDITIVE: a `cluster` block makes the pipeline also emit a
+      # first-class sibling db `repdb_clustered` (this db's decontaminated fasta,
+      # clustered per class) alongside the full repdb - both get their own
+      # indices under results/dbs/repdb/ and results/dbs/repdb_clustered/. The
+      # same `cluster` block works on any custom db below.
+      cluster:
+        level: class
+        identity: 0.9
+        coverage: 0.9
+        # keep_full: false -> `cleanup` treats the full (unclustered) repdb as a
+        # disposable intermediate and its indices are not built; only
+        # repdb_clustered ships. true (default) keeps both.
+        keep_full: true
     # Custom databases are subsets of the universe (an id list), optionally
-    # clustered / decontaminated. clusterrepdb = a clustered version of RepDB:
-    # the RepDB selection (results/universe/repdb.ids), clustered per class.
-    custom:
-      clusterrepdb:
-        ids: results/universe/repdb.ids
-        cluster:
-          level: class
-          identity: 0.9
-          coverage: 0.9
+    # clustered (add a `cluster` block, as above) / decontaminated.
+    # custom:
+    #   mydb:
+    #     ids: resources/mydb.ids
+    #     cluster: {level: class, identity: 0.9, coverage: 0.9}
 
 
 # If repdb is not specified and you specified to decontaminate your custom database, 

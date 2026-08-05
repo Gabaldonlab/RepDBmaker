@@ -65,6 +65,8 @@ _validate_cluster_levels()
 
 
 rule write_cluster_params:
+    wildcard_constraints:
+        db=_C_PARENTS,
     output:
         params="results/dbs/{db}/cluster/cluster_params.yaml",
     localrule: True
@@ -82,6 +84,8 @@ rule write_cluster_params:
 
 
 checkpoint db_clades:
+    wildcard_constraints:
+        db=_C_PARENTS,
     input:
         "results/taxonomies/{db}_taxonomy.tsv",
     output:
@@ -119,6 +123,8 @@ def cluster_all_clades(wildcards):
 
 
 rule get_clade:
+    wildcard_constraints:
+        db=_C_PARENTS,
     input:
         mmseqs=rules.make_mmseqsdb_clustering.output.db,
         mmseqs_extra=rules.make_mmseqsdb_clustering.output.db_extra,
@@ -164,6 +170,8 @@ rm {output}_db*
 
 
 rule cluster_clade:
+    wildcard_constraints:
+        db=_C_PARENTS,
     input:
         rules.get_clade.output,
     output:
@@ -195,6 +203,10 @@ rm $clusterdir/{wildcards.clade}_all_seqs.fasta
 
 
 rule merge_clustered:
+    # keyed on the PARENT db; produces that db's clustered fasta as an
+    # intermediate, which publish_clustered_variant exposes as a sibling db.
+    wildcard_constraints:
+        db=_C_PARENTS,
     input:
         seqs=repr_all_clades,
         clusters=cluster_all_clades,
@@ -208,4 +220,32 @@ rule merge_clustered:
         """
 cat {input.seqs} | gzip > {output.seqs}
 cat {input.clusters} > {output.clusters}
+"""
+
+
+rule publish_clustered_variant:
+    """Expose a db's clustered product as a first-class sibling db
+    `<parent>_clustered`, so it flows through the normal index/stats rules with
+    no special casing. The clustered fasta and the parent's taxid maps are
+    hard-linked (not copied) into the sibling dir; hard links survive `cleanup`
+    deleting the parent-side copies. The representative IDs are a subset of the
+    parent's, so the parent's maps cover them (supersets are fine for the index
+    builders)."""
+    wildcard_constraints:
+        parent=_C_PARENTS,
+    input:
+        fa="results/dbs/{parent}/{parent}_clustered.fa.gz",
+        headmap="results/dbs/{parent}/{parent}.map",
+        noheadmap="results/dbs/{parent}/{parent}_nohead.map",
+    output:
+        fa="results/dbs/{parent}_clustered/{parent}_clustered.fa.gz",
+        headmap="results/dbs/{parent}_clustered/{parent}_clustered.map",
+        noheadmap="results/dbs/{parent}_clustered/{parent}_clustered_nohead.map",
+    localrule: True
+    shell:
+        """
+mkdir -p $(dirname {output.fa})
+ln -f {input.fa} {output.fa} 2>/dev/null || cp {input.fa} {output.fa}
+ln -f {input.headmap} {output.headmap} 2>/dev/null || cp {input.headmap} {output.headmap}
+ln -f {input.noheadmap} {output.noheadmap} 2>/dev/null || cp {input.noheadmap} {output.noheadmap}
 """
