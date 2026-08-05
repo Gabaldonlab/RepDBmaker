@@ -12,7 +12,12 @@ default-resources:
   slurm_account: bsc40
   slurm_extra: "'--qos=gp_bscls'"
   mem_mb: None
-  cpus_per_task: 12
+  # cpus_per_task is a RESOURCE and, when set, overrides each job's `threads`
+  # for --cpus-per-task on SLURM. Deriving it from `threads` keeps set-threads
+  # authoritative (heavy rules get their 112) while still giving undeclared
+  # rules a floor of 12 cores. Do NOT set a bare integer here or it will pin
+  # every rule to that value regardless of set-threads.
+  cpus_per_task: "max(threads, 12)"
   runtime: 120 # 2 hours
 
 local-cores: 1
