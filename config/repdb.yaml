@@ -12,7 +12,7 @@ versions:
 # build; the large downloads (GTDB tarball, EukProt archive, virus zip) and
 # the QC/Krona reports still run on the full sources. Mutually exclusive with
 # reproduce mode (a pinned universe).
-test: false
+test: 25
 
 dbs:
   type: ["diamond", "mmseqs"] 
@@ -72,7 +72,12 @@ dbs:
           level: class
           identity: 0.9
           coverage: 0.9
-
+        decontaminate:
+          identity: 0.9
+          coverage: 0.5
+          cov_mode: 3
+          prop_euka: 0.5
+          filter: soft
 # If repdb is not specified and you specified to decontaminate your custom database, 
 # the pipeline will still produce the repdb.fa.gz
 # Right now there is no option to do that as temp because it seems too complicated to manage :=)
