@@ -185,8 +185,14 @@ rule cleanup:
     """Reclaim disk by deleting the big, NON-final build intermediates. This is a
     deliberate double opt-in: it is never part of `all`/`build` (you must run
     `snakemake cleanup` explicitly) AND it does nothing unless the config sets
-    `keep_intermediates: false`. Its inputs are all BUILD_TARGETS, so Snakemake
-    refuses to run it until every db's final indices + fasta actually exist.
+    `keep_intermediates: false`.
+
+    It does NOT take BUILD_TARGETS as inputs on purpose: a DAG edge onto the
+    post-checkpoint (db_clades) outputs would force Snakemake to re-plan through
+    the checkpoint and re-materialise the per-clade temp() files that the build
+    already deleted, re-running the whole clustering/decontamination chain. So
+    instead it gates itself with a runtime existence check on the final
+    deliverables and touches no other part of the DAG.
 
     Everything it removes is regenerable from the (pinned) universe. NOTE: it
     also drops the raw `repdb.fa.gz`, which is the decontamination reference for
@@ -199,14 +205,13 @@ rule cleanup:
              clustering `_mmseqs` DB and per-clade scratch (`cluster/tmp`), and
              the decontamination detection scratch (`_decon.fa.gz`, `_cluster.tsv`).
     """
-    input:
-        BUILD_TARGETS,
     output:
         report="results/dbs/cleanup_report.txt",
     localrule: True
     run:
         import os
         import shutil
+        from snakemake.exceptions import WorkflowError
 
         removed = []
         stats = {"freed": 0}
@@ -233,6 +238,20 @@ rule cleanup:
                 "`keep_intermediates: false` in the config to reclaim space."
             )
         else:
+            # runtime gate (replaces a DAG dependency on BUILD_TARGETS): only
+            # reclaim once every db's final search indices exist.
+            finals = (
+                expand("results/dbs/{db}/{db}_{dbtype}",
+                       db=FULL_INDEX_DBS, dbtype=config["dbs"]["type"])
+                + expand("results/dbs/{cdb}/{cdb}_{dbtype}",
+                         cdb=CLUSTERED_DBS, dbtype=config["dbs"]["type"])
+            )
+            missing = [f for f in finals if not os.path.exists(f)]
+            if missing:
+                raise WorkflowError(
+                    "cleanup: refusing to run - these final deliverables are "
+                    f"missing, build them first (`snakemake build`): {missing}"
+                )
             for db in get_database_targets():
                 final = _final_db_fa(db)
                 has_var = _has_cluster_variant(db)
