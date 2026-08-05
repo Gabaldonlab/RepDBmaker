@@ -1,10 +1,3 @@
-# Database configuration
-versions:
-  gtdb: "release226" # use latest to use most recent version
-  unieuk: "0.0.1-pre_release"
-  EukProt: "3" # only available option as of now
-  taxdump: "2026-07-01" # use latest to use most recent version
-
 # Test mode: build a tiny RepDB to run the whole pipeline end-to-end quickly by
 # keeping only a few genomes per source (gtdb, virus, uniprot, eukprot, p10k,
 # custom). false = off (default); true = 10 per source; an integer = that many
@@ -83,25 +76,3 @@ dbs:
         # disposable intermediate and its indices are not built; only
         # repdb_clustered ships. true (default) keeps both.
         keep_full: true
-    # Custom databases are subsets of the universe (an id list), optionally
-    # clustered (add a `cluster` block, as above) / decontaminated.
-    # custom:
-    #   mydb:
-    #     ids: resources/mydb.ids
-    #     cluster: {level: class, identity: 0.9, coverage: 0.9}
-
-
-# If repdb is not specified and you specified to decontaminate your custom database, 
-# the pipeline will still produce the repdb.fa.gz
-files:
-  # folder holding the custom proteome files, one per row named by its CUS id
-  # (CUS<id>.faa.gz or CUS<id>.fa). Used to build the bundle and, when no bundle
-  # is pinned, to fetch the sequences directly.
-  custom_proteomes: "resources/custom_proteomes"
-  clades_to_keep: "resources/clades_tokeep.txt"
-  genomes_to_exclude: "resources/exclude.txt"
-  new_genomes: "resources/custom_genomes_repdb.csv"
-
-  # optional: completeness scores for custom proteomes (id<TAB>completeness),
-  # carried into the universe. Left out -> custom completeness is NA.
-  # new_genomes_busco: "resources/custom_busco.tsv"

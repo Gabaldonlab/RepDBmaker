@@ -127,8 +127,6 @@ cut -f1 {input.clusters} | uniq -d > {output.dups}
 echo "splitting the file"
 split {input.clusters} -n l/24 ${{cont_dir}}/chunk_
 
-mkdir -p ${{cont_dir}}/results/
-
 > {output.clusters}
 for file in ${{cont_dir}}/chunk_*; do
     echo "processing chunk $file"

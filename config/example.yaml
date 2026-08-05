@@ -16,27 +16,16 @@ versions:                       # must match the pinned universe's release
 dbs:
   type: ["diamond"]             # diamond / mmseqs / blastp (any subset)
   build:
-    repdb:
-      # the published universe you are building against (download it first)
-      universe: resources/releases/v1/universe.tsv
-
-    # each custom db = a chosen subset of the universe, by an id list (one
-    # universe id per line: UP.. / EP.. / P10K.. / GCA.. / GCF.. / CUS..).
     custom:
-      mydb:
-        ids: resources/my_ids.txt
-        # optional: taxonomy-aware clustering (drop the block to skip)
-        cluster:
-          level: order          # phylum / class / order / family / genus
-          identity: 0.8
-          coverage: 0.8
-        # optional: contamination filtering (drop the block to skip)
+      smalleuks:
+        ids: resources/ids/eukas_50.ids
+        cluster: {level: phylum, identity: 0.3, coverage: 0.3, keep_full: False}
         decontaminate:
-          identity: 0.9
-          coverage: 0.5
+          identity: 0.7
+          coverage: 0.3
           cov_mode: 3
           prop_euka: 0.5
-          filter: soft           # soft = flag only; hard = remove flagged seqs
+          filter: hard
 
 files:
   # your own custom proteomes (folder of CUS<id>.faa.gz | .fa) + their metadata

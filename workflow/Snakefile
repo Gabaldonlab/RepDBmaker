@@ -1,4 +1,4 @@
-configfile: "config/repdb.yaml"
+configfile: "config/default.yaml"
 
 
 # Test mode: subsample TEST_N genomes per source (gtdb, virus, uniprot, eukprot,
