@@ -14,6 +14,14 @@ versions:
 # reproduce mode (a pinned universe).
 test: 25
 
+# Disk cleanup: when false, running `snakemake cleanup` (an explicit target,
+# never part of `all`/`build`) deletes the big NON-final intermediates once
+# every db's final indices + fasta exist - the raw and full-decontaminated
+# fastas, the clustering mmseqs DB and per-clade scratch, and the decontamination
+# detection scratch. All of it is regenerable from the (pinned) universe. Leave
+# true (default) to keep everything; the cleanup target is then a safe no-op.
+keep_intermediates: true
+
 dbs:
   type: ["diamond", "mmseqs"] 
   build:

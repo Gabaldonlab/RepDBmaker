@@ -9,23 +9,42 @@ def _is_db_clustered(db_name):
     return False
 
 
-def get_db_fa(wildcards):
-    if _is_db_clustered(wildcards.db):
-        return f"results/dbs/{wildcards.db}/{wildcards.db}_clustered.fa.gz"
-    # unfortunately this + unify_fasta does not work as expected for
-    # some mysterious reason...
-    # return f"results/dbs/{wildcards.db}/{wildcards.db}_raw.fa.gz"
-    return f"results/dbs/{wildcards.db}/{wildcards.db}.fa.gz"
+def _fa_raw(db):
+    return f"results/dbs/{db}/{db}.fa.gz"
+
+
+def _fa_decontaminated(db):
+    return f"results/dbs/{db}/{db}_decontaminated.fa.gz"
+
+
+def _fa_clustered(db):
+    return f"results/dbs/{db}/{db}_clustered.fa.gz"
+
+
+def get_cluster_input_fa(wildcards):
+    """FASTA fed into clustering: the decontaminated one when the db is
+    decontaminated (decontamination runs on the raw set first, so contaminant
+    detection keeps full sensitivity), otherwise the raw assembled FASTA.
+    Transform chain: raw -> [decontaminate] -> [cluster] -> final."""
+    db = wildcards.db
+    return _fa_decontaminated(db) if _is_db_decon(db) else _fa_raw(db)
+
+
+def _final_db_fa(db):
+    """FASTA the search indices are built from = the last enabled stage of the
+    chain: clustered if the db is clustered, else decontaminated if it is
+    decontaminated, else the raw assembled FASTA."""
+    if _is_db_clustered(db):
+        return _fa_clustered(db)
+    if _is_db_decon(db):
+        return _fa_decontaminated(db)
+    return _fa_raw(db)
 
 
 def get_final_db_fa(wildcards):
-    """FASTA the search indices are built from: the decontaminated one when the
-    db has a `decontaminate` block (rule decontaminate_db applies hard/soft),
-    otherwise the clustered/assembled FASTA (get_db_fa). `_is_db_decon` lives in
-    decontaminate.smk and is resolved at DAG time."""
-    if _is_db_decon(wildcards.db):
-        return f"results/dbs/{wildcards.db}/{wildcards.db}_decontaminated.fa.gz"
-    return get_db_fa(wildcards)
+    """Input-function form of `_final_db_fa` (`_is_db_decon` lives in
+    decontaminate.smk; both flags resolve at DAG time)."""
+    return _final_db_fa(wildcards.db)
 
 
 mmseqs_ext = [
@@ -83,7 +102,10 @@ awk 'NR>1' {output.headermap} > {output.noheadermap}
 # using mmseqs was the fastest way I found to extract clade specific fastas.
 rule make_mmseqsdb_clustering:
     input:
-        fa=rules.make_db_fasta.output.fa,
+        # decontaminated fasta when the db is decontaminated, else the raw one
+        # (see get_cluster_input_fa): clustering is the last transform, so it
+        # consumes whatever decontamination produced.
+        fa=get_cluster_input_fa,
         taxidmap=rules.make_db_map.output.noheadermap,
         taxdump=rules.create_taxdump.output.full_taxdump,
     output:

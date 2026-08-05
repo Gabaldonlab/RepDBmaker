@@ -240,7 +240,9 @@ rule decontaminate_db:
     In both modes the contaminants data frame (rule get_contaminants) is produced.
     """
     input:
-        fa=get_db_fa,
+        # decontamination is a filter on the RAW assembled fasta (detection ran
+        # on the raw set too); clustering, if enabled, consumes this output.
+        fa=lambda w: f"results/dbs/{w.db}/{w.db}.fa.gz",
         contaminants=rules.get_contaminants.output.ids,
     output:
         "results/dbs/{db}/{db}_decontaminated.fa.gz",
@@ -257,7 +259,10 @@ if [ "{params.mode}" = "hard" ]; then
     seqkit grep -v -f {input.contaminants} {input.fa} -o {output}
 elif [ "{params.mode}" = "soft" ]; then
     echo "soft filter: keeping all sequences (contaminants flagged in contaminants.tsv)"
-    cp {input.fa} {output}
+    # no sequences removed -> hard-link instead of copying (saves a full-size
+    # duplicate of the raw fasta). Falls back to cp across filesystems. A hard
+    # link survives later deletion of the raw file (unlike a symlink).
+    ln {input.fa} {output} 2>/dev/null || cp {input.fa} {output}
 else
     echo "ERROR: invalid decontaminate.filter '{params.mode}' (expected 'soft' or 'hard')" >&2
     exit 1
