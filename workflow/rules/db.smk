@@ -187,9 +187,13 @@ rule make_mmseqsdb_clustering:
         taxidmap=rules.make_db_map.output.noheadermap,
         taxdump=rules.create_taxdump.output.full_taxdump,
     output:
-        db=temp("results/dbs/{db}/cluster/{db}_mmseqs"),
-        db_extra=temp(
-            expand("results/dbs/{{db}}/cluster/{{db}}_mmseqs{ext}", ext=mmseqs_ext)
+        # NOT temp(): reclaimed by `cleanup`, not by Snakemake. Marking these
+        # temp() forces a full clustering rerun whenever the DAG is re-invoked
+        # (the deleted scratch is re-materialised through the db_clades
+        # checkpoint). cleanup deletes exactly this DB + cluster/tmp on demand.
+        db="results/dbs/{db}/cluster/{db}_mmseqs",
+        db_extra=expand(
+            "results/dbs/{{db}}/cluster/{{db}}_mmseqs{ext}", ext=mmseqs_ext
         ),
     log:
         "results/log/dbs/{db}/make_mmseqs_clustering.log",

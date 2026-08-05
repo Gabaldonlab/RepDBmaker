@@ -52,7 +52,10 @@ rule concat_fasta_decont:
         repdb="results/dbs/repdb/repdb.fa.gz",
         other="results/dbs/{db}/{db}.fa.gz",
     output:
-        temp("results/dbs/{db}/decontaminate/{db}_decon.fa.gz"),
+        # NOT temp(): reclaimed by `cleanup` (which removes _decon.fa.gz), not by
+        # Snakemake. contaminants.tsv/pair_counts.tsv sit downstream of this, so
+        # temp() here dragged the whole decontamination chain on re-invocation.
+        "results/dbs/{db}/decontaminate/{db}_decon.fa.gz",
     localrule: True
     conda:
         "../envs/utils.yaml"

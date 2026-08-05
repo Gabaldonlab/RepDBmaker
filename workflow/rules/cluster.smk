@@ -146,7 +146,9 @@ rule get_clade:
         tax="results/universe/universe.tsv",
         taxdump=rules.create_taxdump.output.full_taxdump,
     output:
-        temp("results/dbs/{db}/cluster/tmp/{clade}/{clade}.fasta"),
+        # NOT temp(): reclaimed by `cleanup` (which removes cluster/tmp), not by
+        # Snakemake - see make_mmseqsdb_clustering. Keeps re-invoked builds no-op.
+        "results/dbs/{db}/cluster/tmp/{clade}/{clade}.fasta",
     params:
         level=lambda wildcards: _get_cluster_settings(wildcards.db).get(
             "level", "class"
@@ -188,8 +190,11 @@ rule cluster_clade:
     input:
         rules.get_clade.output,
     output:
-        seqs=temp("results/dbs/{db}/cluster/tmp/{clade}/{clade}_rep_seq.fasta"),
-        clusters=temp("results/dbs/{db}/cluster/tmp/{clade}/{clade}_cluster.tsv"),
+        # NOT temp(): reclaimed by `cleanup` (cluster/tmp), not by Snakemake.
+        # clustdb_stats + merge_clustered read these directly, so temp() here is
+        # what dragged the whole clustering chain on every re-invocation.
+        seqs="results/dbs/{db}/cluster/tmp/{clade}/{clade}_rep_seq.fasta",
+        clusters="results/dbs/{db}/cluster/tmp/{clade}/{clade}_cluster.tsv",
     params:
         identity=lambda wildcards: _get_cluster_settings(wildcards.db).get(
             "identity", 0.9
