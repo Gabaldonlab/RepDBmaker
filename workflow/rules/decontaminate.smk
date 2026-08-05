@@ -62,11 +62,12 @@ rule concat_fasta_decont:
     shell:
         """
 if [ "{wildcards.db}" == "repdb" ]; then
-    # hard link, NOT a symlink: Snakemake treats symlink outputs as perpetually
-    # out of date (they resolve to the same file/mtime as the input), which made
-    # concat_fasta_decont rerun on every invocation and cascade downstream.
-    # A hard link is a regular file with a stable mtime (as in decontaminate_db).
-    ln -f {input.repdb} {output} 2>/dev/null || cp {input.repdb} {output}
+    # relative symlink (ln -rs), NOT a hard link: a hard link shares the raw
+    # fasta's inode, so a LATER hard link to it (decontaminate_db) bumps the
+    # shared mtime and retroactively invalidates this file, rerunning the chain
+    # forever. A relative symlink has its own inode/mtime (tracked by Snakemake
+    # via lstat) and stays ~0 bytes. cp fallback just in case.
+    ln -rsf {input.repdb} {output} 2>/dev/null || cp {input.repdb} {output}
 else
     cat {input.repdb} {input.other} > {output}
 fi
@@ -266,10 +267,11 @@ if [ "{params.mode}" = "hard" ]; then
     seqkit grep -v -f {input.contaminants} {input.fa} -o {output}
 elif [ "{params.mode}" = "soft" ]; then
     echo "soft filter: keeping all sequences (contaminants flagged in contaminants.tsv)"
-    # no sequences removed -> hard-link instead of copying (saves a full-size
-    # duplicate of the raw fasta). Falls back to cp across filesystems. A hard
-    # link survives later deletion of the raw file (unlike a symlink).
-    ln {input.fa} {output} 2>/dev/null || cp {input.fa} {output}
+    # no sequences removed -> relative symlink (ln -rs), not a copy or a hard
+    # link. A hard link here is the LATE link that poisons the raw fasta's shared
+    # inode mtime and reruns the decontamination chain forever; a relative
+    # symlink has its own inode/mtime and stays ~0 bytes. cp fallback just in case.
+    ln -rsf {input.fa} {output} 2>/dev/null || cp {input.fa} {output}
 else
     echo "ERROR: invalid decontaminate.filter '{params.mode}' (expected 'soft' or 'hard')" >&2
     exit 1

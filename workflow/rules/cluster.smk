@@ -263,7 +263,9 @@ rule publish_clustered_variant:
     shell:
         """
 mkdir -p $(dirname {output.fa})
-ln -f {input.fa} {output.fa} 2>/dev/null || cp {input.fa} {output.fa}
-ln -f {input.headmap} {output.headmap} 2>/dev/null || cp {input.headmap} {output.headmap}
-ln -f {input.noheadmap} {output.noheadmap} 2>/dev/null || cp {input.noheadmap} {output.noheadmap}
+# relative symlinks (ln -rs), not hard links: own inode/mtime, no shared-inode
+# mtime poisoning, ~0 bytes. cp fallback just in case.
+ln -rsf {input.fa} {output.fa} 2>/dev/null || cp {input.fa} {output.fa}
+ln -rsf {input.headmap} {output.headmap} 2>/dev/null || cp {input.headmap} {output.headmap}
+ln -rsf {input.noheadmap} {output.noheadmap} 2>/dev/null || cp {input.noheadmap} {output.noheadmap}
 """

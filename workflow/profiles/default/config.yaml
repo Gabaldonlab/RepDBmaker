@@ -13,4 +13,5 @@ sdm: conda            # build/use the conda envs in workflow/envs/ (remove if yo
 keep-going: true
 rerun-incomplete: true
 printshellcmds: true
+rerun-triggers: [code,input,params,mtime]
 

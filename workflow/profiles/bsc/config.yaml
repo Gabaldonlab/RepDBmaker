@@ -26,7 +26,7 @@ rerun-incomplete: true
 printshellcmds: true
 sdm: conda
 conda-prefix: "/gpfs/projects/bsc40/current/gmutti/software/conda/repdb/"
-rerun-triggers: [code,input,mtime,params]
+rerun-triggers: [code,input,params,mtime]
 
 group-components:
   - cluster_db=6
