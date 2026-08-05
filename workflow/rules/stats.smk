@@ -83,9 +83,11 @@ rule taxonomy_harmonization_report:
 
 
 rule db_stats:
-    # real dbs only (genome-table based); clustered variants use clustdb_stats.
+    # real dbs + repdb-as-reference (_C_REAL_REF); genome-table based. clustered
+    # variants use clustdb_stats. make_db_fasta(repdb) needs this even when repdb
+    # is not a build target (decontamination reference for custom dbs).
     wildcard_constraints:
-        db=_C_REAL,
+        db=_C_REAL_REF,
     input:
         "results/dbs/{db}/genome_table.tsv",
     output:

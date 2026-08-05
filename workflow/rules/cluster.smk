@@ -242,13 +242,6 @@ cat {input.clusters} > {output.clusters}
 
 
 rule publish_clustered_variant:
-    """Expose a db's clustered product as a first-class sibling db
-    `<parent>_clustered`, so it flows through the normal index/stats rules with
-    no special casing. The clustered fasta and the parent's taxid maps are
-    hard-linked (not copied) into the sibling dir; hard links survive `cleanup`
-    deleting the parent-side copies. The representative IDs are a subset of the
-    parent's, so the parent's maps cover them (supersets are fine for the index
-    builders)."""
     wildcard_constraints:
         parent=_C_PARENTS,
     input:

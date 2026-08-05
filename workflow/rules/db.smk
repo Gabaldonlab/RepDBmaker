@@ -64,6 +64,12 @@ ALL_DBS = REAL_DBS + CLUSTERED_DBS
 _C_REAL = "|".join(re.escape(d) for d in REAL_DBS) or r"$.^"
 _C_PARENTS = "|".join(re.escape(d) for d in PARENT_DBS) or r"$.^"
 _C_ALL = "|".join(re.escape(d) for d in ALL_DBS) or r"$.^"
+# repdb's raw fasta (and its genome-table stats) must be buildable even when
+# repdb is NOT an explicit build target, because concat_fasta_decont uses
+# results/dbs/repdb/repdb.fa.gz as the decontamination reference for custom dbs.
+# So the fasta-producing rules on that reference path accept repdb in addition
+# to the configured real dbs. (When repdb IS configured this equals _C_REAL.)
+_C_REAL_REF = "|".join(re.escape(d) for d in sorted(set(REAL_DBS) | {"repdb"}))
 
 
 wildcard_constraints:
@@ -127,10 +133,10 @@ mmseqs_ext = [
 
 
 rule make_db_fasta:
-    # real dbs only; a `<db>_clustered` variant gets its fasta from clustering
-    # (publish_clustered_variant), not from a genome table.
+    # real dbs + repdb-as-reference (see _C_REAL_REF); a `<db>_clustered` variant
+    # gets its fasta from clustering (publish_clustered_variant), not a genome table.
     wildcard_constraints:
-        db=_C_REAL,
+        db=_C_REAL_REF,
     input:
         table="results/dbs/{db}/genome_table.tsv",
         taxdump=rules.create_taxdump.output.full_taxdump,
