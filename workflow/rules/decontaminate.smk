@@ -62,7 +62,11 @@ rule concat_fasta_decont:
     shell:
         """
 if [ "{wildcards.db}" == "repdb" ]; then
-    ln -s $(realpath {input.repdb}) {output}
+    # hard link, NOT a symlink: Snakemake treats symlink outputs as perpetually
+    # out of date (they resolve to the same file/mtime as the input), which made
+    # concat_fasta_decont rerun on every invocation and cascade downstream.
+    # A hard link is a regular file with a stable mtime (as in decontaminate_db).
+    ln -f {input.repdb} {output} 2>/dev/null || cp {input.repdb} {output}
 else
     cat {input.repdb} {input.other} > {output}
 fi
