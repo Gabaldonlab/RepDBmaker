@@ -29,8 +29,14 @@ import os
 import shutil
 import sys
 
-# J, B, O, Z, U -> X ; * (stop) deleted. Identical to v2.
-_CLEANING_TABLE = str.maketrans("JBOZU", "XXXXX", "*")
+# J, B, O, Z, U -> X ; * (stop), whitespace and '\r' deleted. The whitespace/'\r'
+# deletion is NOT in v2: some source proteomes (block-formatted or
+# Windows-line-ended FASTA) embed spaces/tabs/carriage returns *within*
+# sequence lines, which `line.strip()` below does not touch (it only trims
+# line edges) - those characters used to pass straight through into the final
+# RepDB FASTA and only surface much later as diamond's cryptic "Invalid
+# character in sequence: ' '", deep inside a multi-GB gzipped file.
+_CLEANING_TABLE = str.maketrans("JBOZU", "XXXXX", "* \t\r")
 WRAP = 60          # sequence line width, as in v2
 COMPRESSLEVEL = 6  # v2 used gzip's default (9); 6 is much faster, ~same size
 

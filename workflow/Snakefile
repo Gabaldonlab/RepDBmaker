@@ -252,6 +252,33 @@ rule cleanup:
                     "cleanup: refusing to run - these final deliverables are "
                     f"missing, build them first (`snakemake build`): {missing}"
                 )
+
+            # Kept final fastas that are relative symlinks: the soft-decontaminated
+            # full fasta (-> raw) and the published clustered fasta (-> the
+            # parent-side merge output). When cleanup deletes what such a symlink
+            # points to, PROMOTE the deliverable to a real file instead of leaving
+            # a dangling link.
+            kept_links = []
+            for db in get_database_targets():
+                if not (_has_cluster_variant(db) and not _cluster_keep_full(db)):
+                    kept_links.append(_final_db_fa(db))
+                if _has_cluster_variant(db):
+                    kept_links.append(_final_db_fa(f"{db}{CLUSTER_SUFFIX}"))
+            kept_links = [f for f in kept_links if os.path.islink(f)]
+
+            def _reclaim(path):
+                """rm `path`, unless a kept deliverable symlinks to it - then
+                rename `path` onto that symlink (a ~free move), turning the
+                deliverable into a real, standalone file."""
+                if os.path.lexists(path) and not os.path.islink(path):
+                    rp = os.path.realpath(path)
+                    for link in kept_links:
+                        if os.path.islink(link) and os.path.realpath(link) == rp:
+                            os.replace(path, link)  # symlink -> real file
+                            removed.append(f"{path} (promoted -> {link})")
+                            return
+                _rm(path)
+
             for db in get_database_targets():
                 final = _final_db_fa(db)
                 has_var = _has_cluster_variant(db)
@@ -261,13 +288,13 @@ rule cleanup:
                 # raw is disposable when it isn't the final (db is decontaminated),
                 # or when we're dropping the full db entirely.
                 if _fa_raw(db) != final or drop_full:
-                    _rm(_fa_raw(db))
+                    _reclaim(_fa_raw(db))
                 if drop_full:
                     _rm(final)  # the decontaminated full fasta, if that was final
                 if has_var:
-                    # the parent-side clustered fasta is hard-linked into the
-                    # sibling db, so removing the parent copy is safe
-                    _rm(_fa_clustered(db))
+                    # the parent-side clustered fasta backs the published sibling
+                    # (a symlink); _reclaim promotes that sibling to a real file.
+                    _reclaim(_fa_clustered(db))
                     _rm(f"results/dbs/{db}/cluster/{db}_mmseqs")
                     for ext in mmseqs_ext:
                         _rm(f"results/dbs/{db}/cluster/{db}_mmseqs{ext}")

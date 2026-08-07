@@ -169,6 +169,18 @@ def validate_reference_virus(wildcards):
     return rules.virus_taxonomy.output.tax
 
 
+def _custom_fasta_inputs(wildcards):
+    """Local per-id FASTA files to content-check, one per CUS id - only when NOT
+    using a pinned release bundle (CUSTOM_BUNDLE/custom_proteome_path come from
+    custom_bundle.smk, included later, but this resolves fine: Snakemake calls
+    input functions only after the whole Snakefile, all includes, is loaded).
+    A bundle's proteomes are validated once at packaging time via
+    `package_custom` instead, since they are not local per-id files here."""
+    if CUSTOM_BUNDLE:
+        return []
+    return [custom_proteome_path(c) for c in CUSTOM_CODES]
+
+
 rule validate_custom_proteomes:
     """Validate the custom-proteome table; the run aborts on violations.
 
@@ -177,7 +189,11 @@ rule validate_custom_proteomes:
     non-empty ranks. Custom proteomes may be eukaryotic OR not; in normal mode
     each row is also checked against the reference taxonomy for its domain
     (Eukaryota, GTDB for Bacteria/Archaea, virus taxonomy for Viruses) and
-    rejected if it places a known taxon under a conflicting parent.
+    rejected if it places a known taxon under a conflicting parent. Also
+    content-checks each row's FASTA file (non-empty, has records, no embedded
+    whitespace or other non-residue characters in sequence lines) - the same
+    class of defect that otherwise only surfaces much later as diamond's
+    "Invalid character in sequence: ' '", deep inside the final RepDB FASTA.
     See workflow/scripts/check_custom_proteomes.R.
     """
     input:
@@ -185,8 +201,11 @@ rule validate_custom_proteomes:
         reference=validate_reference_input,
         reference_prok=validate_reference_prok,
         reference_virus=validate_reference_virus,
+        fasta=_custom_fasta_inputs,
     output:
         "results/meta/custom_proteomes_valid.txt",
+    params:
+        check_fasta=True,
     conda:
         "../envs/R.yaml"
     localrule: True
