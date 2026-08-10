@@ -143,14 +143,8 @@ FULL_INDEX_DBS = [
 def _skip_zenodo_repdb(dbs):
     """Drop "repdb" from a db-target list when dbs.build.repdb.zenodo is set.
 
-    These particular targets (genome_table/universe-derived QC & provenance
-    tables, plus pair_counts.tsv from the decontamination-DETECTION chain)
-    aren't produced by the zenodo_fetch.smk short-circuits - requesting them
-    would drag Pipeline 1 and/or the decontamination-detection/taxon-aware
-    clustering chains back in for repdb specifically, defeating the point of
-    fetching from Zenodo. Custom dbs are untouched: their own stats/meta/
-    decontamination still run normally, against the fetched repdb.fa.gz as
-    their reference.
+    Under Zenodo mode, repdb's only BUILD_TARGETS should be its 4 search
+    indices
     """
     if not REPDB_ZENODO:
         return dbs
@@ -165,11 +159,11 @@ BUILD_TARGETS = [
     *expand("results/dbs/{cdb}/{cdb}_{dbtype}",
             cdb=CLUSTERED_DBS, dbtype=config["dbs"]["type"]),
     *expand("results/dbs/{db}/cluster/cluster_params.yaml",
-            db=get_clustered_database_targets()),
+            db=_skip_zenodo_repdb(get_clustered_database_targets())),
     *expand("results/dbs/{db}/decontaminate/decontaminate_params.yaml",
-            db=get_decontaminated_database_targets()),
+            db=_skip_zenodo_repdb(get_decontaminated_database_targets())),
     *expand("results/dbs/{db}/decontaminate/contaminants.tsv",
-            db=get_decontaminated_database_targets()),
+            db=_skip_zenodo_repdb(get_decontaminated_database_targets())),
     *expand("results/dbs/{db}/decontaminate/pair_counts.tsv",
             db=_skip_zenodo_repdb(get_decontaminated_database_targets())),
     *expand("results/stats/{db}_stats.tsv",

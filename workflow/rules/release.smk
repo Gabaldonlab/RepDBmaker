@@ -1,14 +1,25 @@
 # Freeze a completed run into a versioned, reproducible RepDB release.
 #
-#   snakemake resources/releases/v1/release.yaml
+#   snakemake resources/releases/v1/release.yaml   # rule make_release
+#   snakemake resources/releases/v1/zenodo_stage/zenodo_config.yaml   # rule stage_zenodo_assets
 #
-# writes, under resources/releases/<version>/:
+# Three hosting tiers, split by what each artifact IS rather than by size -
+# see docs/releasing.md for the full reasoning:
+#   git (this repo)   - config.yaml, repdb.ids, release.yaml: small, versioned
+#                        text, committed directly at the release tag.
+#   GitHub release     - universe.tsv, custom_bundle.tar.gz (rule make_release):
+#                        Pipeline 1 *inputs* - needed only to re-run curation
+#                        from scratch, tied to a specific software version,
+#                        too heavy for git history.
+#   Zenodo              - repdb.fa.gz + friends (rule stage_zenodo_assets): the
+#                        actual data and results, DOI'd and citable.
+#
+# make_release writes, under resources/releases/<version>/:
 #   config.yaml   - a self-contained config pinning the universe + custom bundle
 #   repdb.ids     - the selected composition (tracked; human-diffable changelog)
 #   release.yaml  - the manifest (software version, git commit, asset checksums,
 #                   and the GitHub-release asset URLs)
-#   universe.tsv, custom_bundle.tar.gz  - the heavy assets (gitignored; upload as
-#                   GitHub-release assets now, Zenodo later)
+#   universe.tsv, custom_bundle.tar.gz  - the heavy GitHub-release assets (gitignored)
 #
 # Software version = VERSION (currently 0.0.1, pre-release); database version =
 # the <version> wildcard (e.g. v1).
@@ -95,35 +106,33 @@ rule make_release:
 
 
 rule stage_zenodo_assets:
-    """After `snakemake build` has produced repdb's construction artifacts,
-    stage + checksum them for a Zenodo upload and print the `dbs.build.repdb.zenodo`
-    config block to paste into resources/releases/<version>/config.yaml once
-    the record exists (see docs/releasing.md and zenodo_fetch.smk - the
-    reverse of this rule is what fetch_repdb_* consume at reproduce time).
+    """After `snakemake build` has produced repdb's outputs, stage everything
+    for a Zenodo upload: symlink/copy the files into one directory, checksum
+    them, and write SHA256SUMS.txt + a ready-to-paste zenodo_config.yaml.
 
-    Only 4 files are staged - `.map`/`_nohead.map` and `contaminants.txt` are
-    each derivable at fetch time from another staged file (see
-    zenodo_fetch.smk); `repdb_accession_map.txt` (original-source-ID ->
-    repdb-ID) is pure traceability with no functional use downstream, so it
-    isn't staged either - it still exists locally from the real build if
-    anyone wants it, just not on Zenodo.
-
-    Symlinks rather than copies into the staging dir (these are tens of GB;
-    staging must not double disk usage), except the taxdump, which is a
-    directory and has to be tarred to be a single uploadable file.
+    Staged: repdb.fa.gz, repdb_clusters.tsv, repdb_contaminants.tsv,
+    repdb_taxdump.tar.gz, plus repdb_meta.tsv and the two
+    stats tables
     """
     input:
         fa="results/dbs/repdb/repdb.fa.gz",
         clusters="results/dbs/repdb/repdb_clusters.tsv",
         contaminants_tsv="results/dbs/repdb/decontaminate/contaminants.tsv",
         taxdump="results/taxdump/repdb_taxdump/",
+        repdb_meta="results/meta/repdb_meta.tsv",
+        stats="results/stats/repdb_stats.tsv",
+        clustered_stats="results/stats/repdb_clustered_stats.tsv",
     output:
-        manifest="resources/releases/{version}/zenodo_stage/MANIFEST.txt",
+        sha256sums="resources/releases/{version}/zenodo_stage/SHA256SUMS.txt",
+        config_block="resources/releases/{version}/zenodo_stage/zenodo_config.yaml",
     localrule: True
     run:
         import hashlib
         import os
+        import shutil
         import tarfile
+
+        import yaml
 
         stagedir = f"resources/releases/{wildcards.version}/zenodo_stage"
         os.makedirs(stagedir, exist_ok=True)
@@ -135,42 +144,65 @@ rule stage_zenodo_assets:
                     h.update(chunk)
             return h.hexdigest()
 
-        # key -> (Zenodo filename, source path)
-        assets = {
+        def stage(dest_name, src, symlink):
+            dest = f"{stagedir}/{dest_name}"
+            if os.path.lexists(dest):
+                os.remove(dest)
+            if symlink:
+                os.symlink(os.path.abspath(src), dest)
+            else:
+                shutil.copyfile(src, dest)
+            return sha256(src)
+
+        # key -> (Zenodo filename, source path) - what reproduce mode fetches
+        fetched = {
             "fasta": ("repdb.fa.gz", input.fa),
             "clusters": ("repdb_clusters.tsv", input.clusters),
             "contaminants_tsv": ("repdb_contaminants.tsv", input.contaminants_tsv),
         }
+        # key -> (Zenodo filename, source path) - staged for reference only
+        reference = {
+            "repdb_meta": ("repdb_meta.tsv", input.repdb_meta),
+            "repdb_stats": ("repdb_stats.tsv", input.stats),
+            "repdb_clustered_stats": ("repdb_clustered_stats.tsv", input.clustered_stats),
+        }
 
         checksums = {}
-        for key, (name, src) in assets.items():
-            dest = f"{stagedir}/{name}"
-            if os.path.lexists(dest):
-                os.remove(dest)
-            os.symlink(os.path.abspath(src), dest)
-            checksums[key] = sha256(src)
+        for key, (name, src) in fetched.items():
+            checksums[key] = stage(name, src, symlink=True)
+        for key, (name, src) in reference.items():
+            checksums[key] = stage(name, src, symlink=False)
 
         taxdump_name = "repdb_taxdump.tar.gz"
         taxdump_tar = f"{stagedir}/{taxdump_name}"
         with tarfile.open(taxdump_tar, "w:gz") as tf:
             tf.add(input.taxdump, arcname=".")
         checksums["taxdump"] = sha256(taxdump_tar)
-        assets["taxdump"] = (taxdump_name, taxdump_tar)
+        fetched["taxdump"] = (taxdump_name, taxdump_tar)
 
-        with open(output.manifest, "w") as mf:
-            for key, (name, _) in assets.items():
-                mf.write(f"{key}\t{name}\t{checksums[key]}\n")
+        # standard `sha256sum -c`-checkable file, uploaded to Zenodo alongside
+        # the data - covers everything staged, so anyone downloading straight
+        # from the record (not through our fetch mechanism at all) can verify
+        # their own download rather than trusting it blindly.
+        with open(output.sha256sums, "w") as fh:
+            for key, (name, _) in {**fetched, **reference}.items():
+                fh.write(f"{checksums[key]}  {name}\n")
 
-        print(f"\n=== Zenodo assets staged in {stagedir}/ ===\n")
-        print("1) create a new Zenodo deposit and upload every file in that "
-              "directory (web UI, or the Zenodo REST API - there's no official "
-              "CLI): https://zenodo.org/deposit/new\n")
-        print("2) once published, paste this into "
-              f"resources/releases/{wildcards.version}/config.yaml under "
-              "dbs.build.repdb, filling in <record_id>:\n")
-        print("  zenodo:")
-        print('    base_url: "https://zenodo.org/records/<record_id>/files"')
-        print("    files:")
-        for key, (name, _) in assets.items():
-            print(f'      {key}: {{name: {name}, sha256: "{checksums[key]}"}}')
-        print()
+        # ready to paste into resources/releases/<version>/config.yaml under
+        # dbs.build.repdb, once the record exists and <record_id> is filled in.
+        block = {
+            "zenodo": {
+                "base_url": "https://zenodo.org/records/<record_id>/files",
+                "files": {key: {"name": name, "sha256": checksums[key]}
+                          for key, (name, _) in fetched.items()},
+            }
+        }
+        with open(output.config_block, "w") as fh:
+            yaml.safe_dump(block, fh, sort_keys=False)
+
+        print(f"\n=== Zenodo assets staged in {stagedir}/ ===")
+        print("Upload every file in that directory to a new Zenodo deposit "
+              "(web UI or the REST API - no official CLI): "
+              "https://zenodo.org/deposit/new")
+        print(f"Then merge {output.config_block} (filling in <record_id>) into "
+              f"resources/releases/{wildcards.version}/config.yaml under dbs.build.repdb.\n")
