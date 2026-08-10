@@ -62,3 +62,65 @@ snakemake resources/releases/v1/zenodo_stage/zenodo_config.yaml --configfile con
 #    Set `keep_intermediates: false` in resources/releases/v1/config.yaml, then:
 snakemake cleanup --configfile resources/releases/v1/config.yaml
 ```
+
+## Updating pinned tool versions (conda pin files)
+
+`workflow/envs/<name>.linux-64.pin.txt` pin the exact package builds for each
+env - both what the Docker image is built from *and*, since these are
+Snakemake's own native pin files (not bespoke infrastructure - see
+[Freezing environments to exactly pinned
+packages](https://snakemake.readthedocs.io/en/stable/snakefiles/deployment.html#freezing-environments-to-exactly-pinned-packages)),
+what any `snakemake --sdm conda` run uses automatically, Docker or not:
+Snakemake prefers a pin file over its sibling `.yaml` whenever one is present,
+falling back to the `.yaml` only if creating from the pin fails.
+
+Regenerate one whenever its `workflow/envs/<name>.yaml` changes, from the real
+environment that's actually building the release (not a fresh solve elsewhere
+- the point is capturing what actually worked):
+
+```bash
+# find the env Snakemake solved for that rule (hash is deterministic - matches
+# <name>.yaml's current content; default location shown, adjust if you set a
+# custom --conda-prefix):
+ls .snakemake/conda/
+
+# dump it:
+conda list --explicit --md5 -p .snakemake/conda/<hash> > workflow/envs/<name>.linux-64.pin.txt
+```
+
+## Building and publishing the Docker image
+
+```bash
+# 1. BUILD - envs are created by `snakemake --conda-create-envs-only` inside
+#    the Dockerfile itself (from the pin files above, not a fresh solve; see
+#    the Dockerfile's own top-of-file comment for how the addressing works)
+docker build -t gmuttiirb/repdbmaker:v1.0 .
+
+# 2. SMOKE-TEST: does the DAG resolve at all?
+docker run --rm -t -v $(pwd):/app/data gmuttiirb/repdbmaker:v1.0 \
+  snakemake --configfile config/repdb.yaml --cores 2 --directory /app/data \
+  --sdm conda --conda-prefix /conda-envs -n
+
+# 3. VERIFY the actual point of this build: baked envs get reused, not
+#    recreated. Re-running --conda-create-envs-only should return almost
+#    instantly with no "Creating conda environment..." lines - if it prints
+#    those, --conda-prefix wasn't passed, or doesn't match /conda-envs, or
+#    workflow/envs/*.yaml changed since the image was built.
+docker run --rm -t -v $(pwd):/app/data gmuttiirb/repdbmaker:v1.0 \
+  snakemake --configfile config/repdb.yaml --directory /app/data \
+  --sdm conda --conda-prefix /conda-envs --conda-create-envs-only
+
+# 4. PUSH
+docker push gmuttiirb/repdbmaker:v1.0
+
+# 5. GET THE DIGEST and put it in README.md's Docker section
+docker inspect --format='{{index .RepoDigests 0}}' gmuttiirb/repdbmaker:v1.0
+```
+
+No per-env hash to keep in sync by hand anymore: Snakemake computes and
+matches env addresses itself, both at build time (`--conda-create-envs-only`
+above) and at run time, from the same `--conda-prefix /conda-envs` - so as
+long as every `docker run` also passes `--conda-prefix /conda-envs`, the
+addresses always agree by construction. See the Dockerfile's top-of-file
+comment for the full mechanism, including the Apptainer/Singularity
+trade-off it makes.

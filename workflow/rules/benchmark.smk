@@ -37,7 +37,7 @@ rule diamond_random_seqs:
         "results/benchmarks/comparison/{db}_dmnd.txt"
     group:
         "dmnd_bench"
-    threads: 28
+    threads: 112
     shell:
         """
 diamond blastp -q {input} -d {params.db} --out {output} --threads {threads} \

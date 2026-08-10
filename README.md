@@ -66,8 +66,9 @@ snakemake --conda-create-envs-only
 
 These `.yaml` specs are intentionally loose (minimum bounds only where a feature
 requires it) so a fresh install resolves against current packages. To instead
-reproduce the **exact** package builds used for the published RepDB v1.0, use the
-explicit lockfiles in `workflow/envs/locks/` (see [Reproducibility](#reproducibility)).
+reproduce the **exact** package builds used for the published RepDB v1.0, pin
+files sitting next to each `.yaml` (`workflow/envs/*.linux-64.pin.txt`) are
+picked up automatically by `--sdm conda` (see [Reproducibility](#reproducibility)).
 
 ### Docker
 
@@ -76,21 +77,24 @@ A Docker image is available at [Docker Hub](https://hub.docker.com/repository/do
 If [Docker](https://docs.docker.com/engine/install/) is installed, run the pipeline from the repository root with:
 
 ```bash
-docker run --rm -v $(pwd):/app/data gmuttiirb/repdbmaker:v1.0 snakemake --cores 2 --directory /app/data -n
+docker run --rm -t -v $(pwd):/app/data gmuttiirb/repdbmaker:v1.0 snakemake --configfile config/repdb.yaml --cores 2 --directory /app/data -n
 ```
-
-For reproducible pulls, reference the image by its immutable digest rather than
-the mutable `:v1.0` tag (replace the digest below with the one printed by
-`docker inspect --format='{{index .RepoDigests 0}}' gmuttiirb/repdbmaker:v1.0`):
 
 ```bash
-docker run --rm -v $(pwd):/app/data \
-  gmuttiirb/repdbmaker@sha256:5531958bdfe5... \
-  snakemake --cores 2 --directory /app/data -n
+docker run --rm -t -v $(pwd):/app/data \
+  gmuttiirb/repdbmaker@sha256:1c0d3f397ac79ff48f712448156d1a60eb751290fb7becb446c12a11d3a791bc \
+  snakemake --configfile config/repdb.yaml --cores 2 --directory /app/data -n
 ```
 
-The image builds its conda environments from the pinned lockfiles (see below),
-so it reproduces the RepDB v1.0 toolchain rather than re-solving at build time.
+The image builds its conda environments from the pin files (see below), so it
+reproduces the RepDB v1.0 toolchain rather than re-solving at build time.
+For an actual (non dry) run, add `--sdm conda --conda-prefix /conda-envs`:
+
+```bash
+docker run --rm -t -v $(pwd):/app/data gmuttiirb/repdbmaker:v1.0 \
+  snakemake --configfile config/repdb.yaml --cores <N> --directory /app/data \
+  --sdm conda --conda-prefix /conda-envs
+```
 
 ## Reproducibility
 
@@ -101,17 +105,22 @@ needs.
 |-------|---------------|-----|
 | **Parameter** | thresholds, which DBs, which subsets | the config file |
 | **Composition** | *which* proteomes and their taxonomy | a pinned **universe** (a release, below) |
-| **Artifact** | exact tool builds and, ideally, the exact sequences | conda lockfiles + Docker digest + a Zenodo deposit of the FASTA |
+| **Artifact** | exact tool builds and, ideally, the exact sequences | conda pin files + Docker digest + a Zenodo deposit of the FASTA |
 
-### Pinned tool versions (conda lockfiles)
+### Pinned tool versions (conda pin files)
 
-`workflow/envs/locks/*.linux-64.lock` are explicit conda lockfiles (exact builds
+`workflow/envs/*.linux-64.pin.txt` are explicit conda pin files (exact builds
 + md5, `linux-64`) captured from the environments that produced RepDB v1.0. They
-pin tools **and** transitive dependencies; the Docker image is built from them.
-To recreate one directly:
+pin tools **and** transitive dependencies, and the Docker image is built from
+the ones its own envs need (not `benchmark`, see the Dockerfile) - but
+they aren't Docker-specific: each sits next to its `workflow/envs/<name>.yaml`
+using [Snakemake's own pin-file
+convention](https://snakemake.readthedocs.io/en/stable/snakefiles/deployment.html#freezing-environments-to-exactly-pinned-packages),
+so any `snakemake --sdm conda` run picks it up automatically in place of the
+loose `.yaml`, Docker or not. To recreate one directly:
 
 ```bash
-conda create --prefix ./repdb_homology --file workflow/envs/locks/homology.linux-64.lock
+conda create --prefix ./repdb_homology --file workflow/envs/homology.linux-64.pin.txt
 ```
 
 The database-building environment pins **DIAMOND 2.1.13**, **MMseqs2 18.8cc5c**,
@@ -597,23 +606,4 @@ If you use RepDBmaker or RepDB, please cite:
 ## License
 
 See the `LICENSE` file for license details.
-
-## TODOs
-
-
-* Add snakemake-executor-plugin-slurm to installation instructions
-* Test Docker and conda locks
-* Test combination of config
-* Add QC plots!
-* Decide what to do with snakemake version
-* Zenodo fasta + taxonomic annotation
-* Control check_custom_proteomes.R
-* add tests
-* better documentation decon
-* describe how you fill the missing clades
-* test with smk 9
-* add package releases
-* custom proteomes tar creator (overkill for now)
-* change links in tab custom
-* custom genomes in available_proteomes
 
