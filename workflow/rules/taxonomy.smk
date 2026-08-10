@@ -17,6 +17,66 @@ def repdb_universe():
 REPDB_UNIVERSE = repdb_universe()
 
 
+def repdb_zenodo():
+    """Pinned Zenodo record for repdb's heavy CONSTRUCTION artifacts, or None.
+
+    When ``dbs.build.repdb.zenodo`` is set, `snakemake build` fetches the raw
+    fasta, the decontamination report, the cluster membership table and the
+    taxdump directly from Zenodo instead of assembling, decontaminating and
+    clustering repdb from raw sources - a second, further-downstream seam
+    than the universe pin above (that one still redoes all of that; this one
+    skips it). See workflow/rules/zenodo_fetch.smk and docs/releasing.md.
+    Independent of `dbs.build.repdb.universe`: nothing under `zenodo:` is
+    derived from the universe, so Pipeline 1 (`snakemake sample`) isn't needed
+    at all just to build repdb from a Zenodo-pinned release.
+
+    Only 4 files are hosted - `.map`/`_nohead.map` and `contaminants.txt` are
+    each derivable from another hosted file (see zenodo_fetch.smk), so aren't
+    fetched at all; `repdb_clustered.fa.gz` is derived from `fasta` +
+    `clusters` rather than hosted separately; and `repdb_accession_map.txt`
+    (original-source-ID -> repdb-ID) is pure traceability with no functional
+    use anywhere downstream, so it isn't fetched either.
+
+    Expected shape::
+
+        dbs:
+          build:
+            repdb:
+              zenodo:
+                base_url: "https://zenodo.org/records/<record_id>/files"
+                files:
+                  fasta:            {name: repdb.fa.gz, sha256: "..."}
+                  clusters:         {name: repdb_clusters.tsv, sha256: "..."}
+                  contaminants_tsv: {name: repdb_contaminants.tsv, sha256: "..."}
+                  taxdump:          {name: repdb_taxdump.tar.gz, sha256: "..."}
+    """
+    repdb_conf = (config.get("dbs", {}).get("build", {}) or {}).get("repdb") or {}
+    if isinstance(repdb_conf, dict):
+        z = repdb_conf.get("zenodo")
+        return z if isinstance(z, dict) else None
+    return None
+
+
+REPDB_ZENODO = repdb_zenodo()
+
+
+def _zenodo_file(key):
+    """(url, sha256) for one pinned Zenodo asset under REPDB_ZENODO, or a
+    clear config error. Shared by create_taxdump's zenodo branch below and by
+    every fetch rule in zenodo_fetch.smk."""
+    files = REPDB_ZENODO.get("files", {})
+    entry = files.get(key)
+    if not isinstance(entry, dict) or "name" not in entry or "sha256" not in entry:
+        raise ValueError(
+            f"dbs.build.repdb.zenodo.files.{key} is missing or incomplete "
+            f"(need 'name' and 'sha256'; see repdb_zenodo() above)"
+        )
+    base_url = REPDB_ZENODO.get("base_url")
+    if not base_url:
+        raise ValueError("dbs.build.repdb.zenodo.base_url is not set")
+    return f"{base_url}/{entry['name']}", entry["sha256"]
+
+
 # ---- eukaryote downsampling parameters (dbs.build.repdb.downsample) ----------
 # Defaults reproduce the original hard-coded RepDB behaviour so an absent
 # `downsample:` block changes nothing.
@@ -291,21 +351,57 @@ sed 's/d__//g' | sed 's/[a-z]__/\\t/g' | sed 's/;//g' > {output.all_taxa}
 """
 
 
-rule create_taxdump:
-    """Build the taxdump from the UNIVERSE (id + 7 ranks), so it always covers
-    the full set of available proteomes and is defined by the versioned universe
-    artifact rather than by whichever subset a given database selects. taxids are
-    hashed per-lineage by taxonkit, so they are identical to a fresh full run.
-    """
-    input:
-        universe="results/universe/universe.tsv",
-    output:
-        full_taxdump=directory("results/taxdump/repdb_taxdump/"),
-    conda:
-        "../envs/utils.yaml"
-    localrule: True
-    shell:
+if REPDB_ZENODO:
+
+    rule create_taxdump:
+        """Fetch the taxdump a Zenodo-pinned repdb release was built with
+        (dbs.build.repdb.zenodo), instead of regenerating it from the
+        universe. This has to be a branch on `create_taxdump` itself, not a
+        competing ruleorder'd rule (like the other zenodo_fetch.smk fetches):
+        its output has no wildcards, so make_diamonddb/make_mmseqsdb/get_clade
+        - which reference it as `rules.create_taxdump.output.full_taxdump` -
+        bind to this rule directly at parse time, bypassing ruleorder
+        entirely. See zenodo_fetch.smk for the fasta/map/cluster equivalents,
+        which ARE wildcarded and so can use ruleorder normally. The fetched
+        taxdump is already taxid-compacted (see the else branch below and
+        compact_taxdump_ids.py) - that happened once, at build time, before
+        it was uploaded."""
+        output:
+            full_taxdump=directory("results/taxdump/repdb_taxdump/"),
+        params:
+            url=lambda wc: _zenodo_file("taxdump")[0],
+            sha=lambda wc: _zenodo_file("taxdump")[1],
+        log:
+            "results/log/downloads/zenodo_repdb_taxdump.log",
+        localrule: True
+        conda:
+            "../envs/utils.yaml"
+        shell:
+            """
+tmp=$(mktemp --suffix .tar.gz)
+bash workflow/scripts/fetch_zenodo.sh {params.url} {params.sha} "$tmp" >{log} 2>&1
+mkdir -p {output.full_taxdump}
+tar -xzf "$tmp" -C {output.full_taxdump}
+rm -f "$tmp"
+"""
+
+else:
+
+    rule create_taxdump:
+        """Build the taxdump from the UNIVERSE (id + 7 ranks), so it always covers
+        the full set of available proteomes and is defined by the versioned universe
+        artifact rather than by whichever subset a given database selects. taxids are
+        hashed per-lineage by taxonkit, so they are identical to a fresh full run.
         """
+        input:
+            universe="results/universe/universe.tsv",
+        output:
+            full_taxdump=directory("results/taxdump/repdb_taxdump/"),
+        conda:
+            "../envs/utils.yaml"
+        localrule: True
+        shell:
+            """
 tmp=$(mktemp)
 awk -F'\\t' 'NR>1' {input.universe} | cut -f1,3-9 > "$tmp"
 taxonkit create-taxdump -A1 "$tmp" --out-dir {output.full_taxdump} --force \
