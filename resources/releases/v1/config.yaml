@@ -1,0 +1,34 @@
+test: false
+keep_intermediates: true
+dbs:
+  type:
+  - diamond
+  - mmseqs
+  build:
+    repdb:
+      custom_bundle: resources/releases/v1/custom_bundle.tar.gz
+      downsample:
+        remove_duplicated_species: true
+        top_n_genuses: 3
+        reduce_abundant_clades:
+        - rank: class
+          taxon: Opisthokonta
+          n: 20
+        - rank: order
+          taxon: Ciliophora
+          n: 20
+        - rank: family
+          taxon: Embryophyta
+          n: 20
+      decontaminate:
+        identity: 0.9
+        coverage: 0.5
+        cov_mode: 3
+        prop_euka: 0.5
+        filter: soft
+      cluster:
+        level: class
+        identity: 0.9
+        coverage: 0.9
+        keep_full: true
+      universe: resources/releases/v1/universe.tsv

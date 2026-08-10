@@ -1,10 +1,6 @@
-# RepDB v1.0 pinned environment for homology.yaml (exact builds, linux-64).
-# Regenerate: conda list --explicit --md5 -p <built-env>
-# Install:    conda create --prefix <path> --file homology.linux-64.lock
 # This file may be used to create an environment using:
 # $ conda create --name <env> --file <this file>
 # platform: linux-64
-# created-by: conda 26.1.1
 @EXPLICIT
 https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2#d7c89558ba9fa0495403155b64376d81
 https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2025.10.5-hbd8a1cb_0.conda#f9e5fbc24009179e8b0409624691758a

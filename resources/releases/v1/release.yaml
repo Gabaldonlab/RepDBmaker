@@ -1,0 +1,17 @@
+repdb_version: v1
+software:
+  version: 0.0.1
+  git_commit: 7dc1f2b452bc27052135408396abf13e1c641bd6
+config: resources/releases/v1/config.yaml
+selection:
+  file: repdb.ids
+  n: 160045
+assets:
+  universe:
+    file: universe.tsv
+    sha256: 3ae6157a3fe092ed618354e9ca7bcbad7be9f17bdca56792376ca2db296bb722
+    url: https://github.com/Gabaldonlab/RepDBmaker/releases/download/v1/universe.tsv
+  custom_bundle:
+    file: custom_bundle.tar.gz
+    sha256: a90de81a0c8a3330bb2303de844599be269291025dd7c2cfc4add9c5352411d0
+    url: https://github.com/Gabaldonlab/RepDBmaker/releases/download/v1/custom_bundle.tar.gz
