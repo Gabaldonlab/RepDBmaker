@@ -43,6 +43,7 @@ include: "rules/cluster.smk"
 include: "rules/stats.smk"
 include: "rules/decontaminate.smk"
 include: "rules/universe.smk"
+include: "rules/zenodo_fetch.smk"
 include: "rules/release.smk"
 
 
@@ -139,6 +140,23 @@ FULL_INDEX_DBS = [
 
 # Pipeline 2 — the databases built from the universe (+ their clustering,
 # decontamination, stats and provenance metadata).
+def _skip_zenodo_repdb(dbs):
+    """Drop "repdb" from a db-target list when dbs.build.repdb.zenodo is set.
+
+    These particular targets (genome_table/universe-derived QC & provenance
+    tables, plus pair_counts.tsv from the decontamination-DETECTION chain)
+    aren't produced by the zenodo_fetch.smk short-circuits - requesting them
+    would drag Pipeline 1 and/or the decontamination-detection/taxon-aware
+    clustering chains back in for repdb specifically, defeating the point of
+    fetching from Zenodo. Custom dbs are untouched: their own stats/meta/
+    decontamination still run normally, against the fetched repdb.fa.gz as
+    their reference.
+    """
+    if not REPDB_ZENODO:
+        return dbs
+    return [db for db in dbs if db != "repdb"]
+
+
 BUILD_TARGETS = [
     # full-db search indices
     *expand("results/dbs/{db}/{db}_{dbtype}",
@@ -153,11 +171,13 @@ BUILD_TARGETS = [
     *expand("results/dbs/{db}/decontaminate/contaminants.tsv",
             db=get_decontaminated_database_targets()),
     *expand("results/dbs/{db}/decontaminate/pair_counts.tsv",
-            db=get_decontaminated_database_targets()),
-    *expand("results/stats/{db}_stats.tsv", db=get_database_targets()),
+            db=_skip_zenodo_repdb(get_decontaminated_database_targets())),
+    *expand("results/stats/{db}_stats.tsv",
+            db=_skip_zenodo_repdb(get_database_targets())),
     *expand("results/stats/{db}_clustered_stats.tsv",
-            db=get_clustered_database_targets()),
-    *expand("results/meta/{db}_meta.tsv", db=get_database_targets()),
+            db=_skip_zenodo_repdb(get_clustered_database_targets())),
+    *expand("results/meta/{db}_meta.tsv",
+            db=_skip_zenodo_repdb(get_database_targets())),
 ]
 
 

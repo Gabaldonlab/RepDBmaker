@@ -92,3 +92,86 @@ rule make_release:
               f"--title 'RepDB {version}' --generate-notes\n")
         print("2) commit the light, versionable files (git):")
         print(f"   git add {light} && git commit -m 'RepDB {version} release'\n")
+
+
+rule stage_zenodo_assets:
+    """After `snakemake build` has produced repdb's construction artifacts,
+    stage + checksum them for a Zenodo upload and print the `dbs.build.repdb.zenodo`
+    config block to paste into resources/releases/<version>/config.yaml once
+    the record exists (see docs/releasing.md and zenodo_fetch.smk - the
+    reverse of this rule is what fetch_repdb_* consume at reproduce time).
+
+    Symlinks rather than copies into the staging dir (these are tens of GB;
+    staging must not double disk usage), except the taxdump, which is a
+    directory and has to be tarred to be a single uploadable file.
+    """
+    input:
+        fa="results/dbs/repdb/repdb.fa.gz",
+        idmap="results/dbs/repdb/repdb_accession_map.txt",
+        headermap="results/dbs/repdb/repdb.map",
+        noheadermap="results/dbs/repdb/repdb_nohead.map",
+        clusters="results/dbs/repdb/repdb_clusters.tsv",
+        contaminants_tsv="results/dbs/repdb/decontaminate/contaminants.tsv",
+        contaminants_ids="results/dbs/repdb/decontaminate/contaminants.txt",
+        taxdump="results/taxdump/repdb_taxdump/",
+    output:
+        manifest="resources/releases/{version}/zenodo_stage/MANIFEST.txt",
+    localrule: True
+    run:
+        import hashlib
+        import os
+        import tarfile
+
+        stagedir = f"resources/releases/{wildcards.version}/zenodo_stage"
+        os.makedirs(stagedir, exist_ok=True)
+
+        def sha256(path):
+            h = hashlib.sha256()
+            with open(path, "rb") as fh:
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    h.update(chunk)
+            return h.hexdigest()
+
+        # key -> (Zenodo filename, source path)
+        assets = {
+            "fasta": ("repdb.fa.gz", input.fa),
+            "accession_map": ("repdb_accession_map.txt", input.idmap),
+            "map": ("repdb.map", input.headermap),
+            "nohead_map": ("repdb_nohead.map", input.noheadermap),
+            "clusters": ("repdb_clusters.tsv", input.clusters),
+            "contaminants_tsv": ("repdb_contaminants.tsv", input.contaminants_tsv),
+            "contaminants_ids": ("repdb_contaminants.txt", input.contaminants_ids),
+        }
+
+        checksums = {}
+        for key, (name, src) in assets.items():
+            dest = f"{stagedir}/{name}"
+            if os.path.lexists(dest):
+                os.remove(dest)
+            os.symlink(os.path.abspath(src), dest)
+            checksums[key] = sha256(src)
+
+        taxdump_name = "repdb_taxdump.tar.gz"
+        taxdump_tar = f"{stagedir}/{taxdump_name}"
+        with tarfile.open(taxdump_tar, "w:gz") as tf:
+            tf.add(input.taxdump, arcname=".")
+        checksums["taxdump"] = sha256(taxdump_tar)
+        assets["taxdump"] = (taxdump_name, taxdump_tar)
+
+        with open(output.manifest, "w") as mf:
+            for key, (name, _) in assets.items():
+                mf.write(f"{key}\t{name}\t{checksums[key]}\n")
+
+        print(f"\n=== Zenodo assets staged in {stagedir}/ ===\n")
+        print("1) create a new Zenodo deposit and upload every file in that "
+              "directory (web UI, or the Zenodo REST API - there's no official "
+              "CLI): https://zenodo.org/deposit/new\n")
+        print("2) once published, paste this into "
+              f"resources/releases/{wildcards.version}/config.yaml under "
+              "dbs.build.repdb, filling in <record_id>:\n")
+        print("  zenodo:")
+        print('    base_url: "https://zenodo.org/records/<record_id>/files"')
+        print("    files:")
+        for key, (name, _) in assets.items():
+            print(f'      {key}: {{name: {name}, sha256: "{checksums[key]}"}}')
+        print()
