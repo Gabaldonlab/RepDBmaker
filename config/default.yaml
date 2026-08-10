@@ -1,0 +1,15 @@
+# Database configuration
+versions:
+  gtdb: "release226" # use latest to use most recent version
+  unieuk: "0.0.1-pre_release"
+  EukProt: "3" # only available option as of now
+  taxdump: "2026-07-01" # use latest to use most recent version
+
+files:
+  # folder holding the custom proteome files, one per row named by its CUS id
+  # (CUS<id>.faa.gz or CUS<id>.fa). Used to build the bundle and, when no bundle
+  # is pinned, to fetch the sequences directly.
+  custom_proteomes: "resources/custom_proteomes"
+  clades_to_keep: "resources/clades_tokeep.txt"
+  genomes_to_exclude: "resources/exclude.txt"
+  new_genomes: "resources/custom_genomes_repdb.csv"

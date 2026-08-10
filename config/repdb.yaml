@@ -1,10 +1,3 @@
-# Database configuration
-versions:
-  gtdb: "release226" # use latest to use most recent version
-  unieuk: "0.0.1-pre_release"
-  EukProt: "3" # only available option as of now
-  taxdump: "2026-07-01" # use latest to use most recent version
-
 # Test mode: build a tiny RepDB to run the whole pipeline end-to-end quickly by
 # keeping only a few genomes per source (gtdb, virus, uniprot, eukprot, p10k,
 # custom). false = off (default); true = 10 per source; an integer = that many
@@ -12,11 +5,18 @@ versions:
 # build; the large downloads (GTDB tarball, EukProt archive, virus zip) and
 # the QC/Krona reports still run on the full sources. Mutually exclusive with
 # reproduce mode (a pinned universe).
-test: false
+test: False
+
+# Disk cleanup: when false, running `snakemake cleanup` (an explicit target,
+# never part of `all`/`build`) deletes the big NON-final intermediates once
+# every db's final indices + fasta exist - the raw and full-decontaminated
+# fastas, the clustering mmseqs DB and per-clade scratch, and the decontamination
+# detection scratch. All of it is regenerable from the (pinned) universe. Leave
+# true (default) to keep everything; the cleanup target is then a safe no-op.
+keep_intermediates: True
 
 dbs:
-  type: ["diamond", "mmseqs"]  # Available database types: diamond, mmseqs, blastp
-  # Which databases to build
+  type: ["diamond", "mmseqs"] 
   build:
     repdb:
       # Reproduce mode: to rebuild a previous release (e.g. RepDB v1.0) regardless
@@ -27,6 +27,13 @@ dbs:
       # re-runs deterministically on it. Freeze one from a full run with:
       #   cp results/universe/universe.tsv resources/repdb_v1.0.universe.tsv
       # universe: resources/repdb_v1.0.universe.tsv
+      #
+      # Release custom proteomes come from a versioned bundle (tar.gz with
+      # proteomes/CUS<id>.faa.gz + custom_busco.tsv + custom_metadata.tsv). Build
+      # it once with `snakemake package_custom` (from data/custom_proteomes/), then
+      # pin it here (a local path for now; a URL+sha256 later). Unset -> the old
+      # local-Fasta paths in the custom table are used.
+      custom_bundle: results/custom/repdb_custom_bundle.tar.gz
       #
       # Eukaryote downsampling: how the redundant public eukaryotic proteomes
       # are thinned before building RepDB. The whole `downsample` block is
@@ -56,59 +63,16 @@ dbs:
         # properties) is written in both modes.
         filter: soft
         # size_cluster: 10
-    # # Custom databases: uncomment and add your database entries
-    # # Example:
-    # custom:
-    #   clusteredrepdb: 
-    #     ids: resources/repdb_v1.0.manifest.tsv
-    #     cluster: 
-    #       level: class
-    #       identity: 0.9
-    #       coverage: 0.9
-      # diatoms: 
-      #   ids: resources/diatomeae.ids
-      #   cluster: 
-      #     level: genus
-      #     identity: 0.9
-      #     coverage: 0.9
-      #   decontaminate:
-      #     prop_euka: 0.5
-      # random: 
-      #   ids: resources/random_500.ids
-      #   cluster: 
-      #     level: phylum
-      #     identity: 0.4
-      #     coverage: 0.3
-      # nctv: 
-      #   ids: resources/nctv.ids
-      #   cluster: 
-      #     level: order
-      #     identity: 0.8
-      #     coverage: 0.8
-      # smalleuks: 
-      #   ids: resources/eukas_50.ids
-      #   cluster: 
-      #     level: order
-      #     identity: 0.8
-      #     coverage: 0.8
-      #   decontaminate:
-      #     identity: 0.9
-      #     coverage: 0.5
-      #     cov_mode: 3
-      #     prop_euka: 0.5
-
-# If repdb is not specified and you specified to decontaminate your custom database, 
-# the pipeline will still produce the repdb.fa.gz
-# Right now there is no option to do that as temp because it seems too complicated to manage :=)
-
-files:
-  clades_to_keep: "resources/clades_tokeep.txt"
-  genomes_to_exclude: "resources/exclude.txt"
-  new_genomes: "resources/custom_genomes_repdb.csv"
-  # optional: BUSCO/completeness scores for custom proteomes (id<TAB>completeness),
-  # carried into the universe / provenance metadata.
-  # new_genomes_busco: "resources/custom_busco.tsv"
-  # optional: a committed RepDB selection (id list) to diff a fresh selection
-  # against; rule repdb_ids_diff writes results/qc/repdb_ids_diff.txt (soft, not
-  # a gate). See docs/split-pipeline.md.
-  # repdb_ids_reference: "resources/repdb_v1.0.ids"
+      # Clustering is ADDITIVE: a `cluster` block makes the pipeline also emit a
+      # first-class sibling db `repdb_clustered` (this db's decontaminated fasta,
+      # clustered per class) alongside the full repdb - both get their own
+      # indices under results/dbs/repdb/ and results/dbs/repdb_clustered/. The
+      # same `cluster` block works on any custom db below.
+      cluster:
+        level: class
+        identity: 0.9
+        coverage: 0.9
+        # keep_full: false -> `cleanup` treats the full (unclustered) repdb as a
+        # disposable intermediate and its indices are not built; only
+        # repdb_clustered ships. true (default) keeps both.
+        keep_full: True

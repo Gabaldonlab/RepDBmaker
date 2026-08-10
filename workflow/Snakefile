@@ -1,4 +1,4 @@
-configfile: "config/repdb.yaml"
+configfile: "config/default.yaml"
 
 
 # Test mode: subsample TEST_N genomes per source (gtdb, virus, uniprot, eukprot,
@@ -36,12 +36,14 @@ if "dbs" in config and "type" in config["dbs"]:
 include: "rules/download.smk"
 include: "rules/gtdb.smk"
 include: "rules/taxonomy.smk"
+include: "rules/custom_bundle.smk"
 include: "rules/common.smk"
 include: "rules/db.smk"
 include: "rules/cluster.smk"
 include: "rules/stats.smk"
 include: "rules/decontaminate.smk"
 include: "rules/universe.smk"
+include: "rules/release.smk"
 
 
 # Test mode subsamples the fetched sequences, so it cannot coexist with
@@ -91,8 +93,9 @@ def get_database_targets():
 
 
 def get_clustered_database_targets():
-    """Return databases that need cluster-specific .fa input"""
-    return [db for db in get_database_targets() if _is_db_clustered(db)]
+    """Real dbs that declare a `cluster` block (each spawns a `<db>_clustered`
+    sibling). The clustering scratch + params live under the parent db."""
+    return [db for db in get_database_targets() if _has_cluster_variant(db)]
 
 
 def get_decontaminated_database_targets():
@@ -126,11 +129,23 @@ SAMPLE_TARGETS = [
        "results/qc/krona/repdb_krona.html"] if not REPDB_UNIVERSE else []),
 ]
 
+# Databases whose FULL (unclustered) indices we build. A db with a clustered
+# variant and `cluster.keep_full: false` is treated as a disposable intermediate
+# (its own indices are not built; only its `<db>_clustered` sibling ships).
+FULL_INDEX_DBS = [
+    db for db in get_database_targets()
+    if not (_has_cluster_variant(db) and not _cluster_keep_full(db))
+]
+
 # Pipeline 2 — the databases built from the universe (+ their clustering,
 # decontamination, stats and provenance metadata).
 BUILD_TARGETS = [
+    # full-db search indices
     *expand("results/dbs/{db}/{db}_{dbtype}",
-            db=get_database_targets(), dbtype=config["dbs"]["type"]),
+            db=FULL_INDEX_DBS, dbtype=config["dbs"]["type"]),
+    # clustered-variant search indices (first-class sibling dbs)
+    *expand("results/dbs/{cdb}/{cdb}_{dbtype}",
+            cdb=CLUSTERED_DBS, dbtype=config["dbs"]["type"]),
     *expand("results/dbs/{db}/cluster/cluster_params.yaml",
             db=get_clustered_database_targets()),
     *expand("results/dbs/{db}/decontaminate/decontaminate_params.yaml",
@@ -164,3 +179,143 @@ rule build:
     generated or pinned via dbs.build.repdb.universe)."""
     input:
         BUILD_TARGETS
+
+
+rule cleanup:
+    """Reclaim disk by deleting the big, NON-final build intermediates. This is a
+    deliberate double opt-in: it is never part of `all`/`build` (you must run
+    `snakemake cleanup` explicitly) AND it does nothing unless the config sets
+    `keep_intermediates: false`.
+
+    It does NOT take BUILD_TARGETS as inputs on purpose: a DAG edge onto the
+    post-checkpoint (db_clades) outputs would force Snakemake to re-plan through
+    the checkpoint and re-materialise the per-clade temp() files that the build
+    already deleted, re-running the whole clustering/decontamination chain. So
+    instead it gates itself with a runtime existence check on the final
+    deliverables and touches no other part of the DAG.
+
+    Everything it removes is regenerable from the (pinned) universe. NOTE: it
+    also drops the raw `repdb.fa.gz`, which is the decontamination reference for
+    custom dbs - so run it only once ALL dbs are built. Adding a custom db that
+    decontaminates afterwards will transparently regenerate repdb.fa.gz.
+
+    Kept   : each db's final fasta (`_final_db_fa`), search indices, taxid maps,
+             and all clustering/decontamination provenance TSVs.
+    Removed: raw + full-decontaminated fastas that are not the final one, the
+             clustering `_mmseqs` DB and per-clade scratch (`cluster/tmp`), and
+             the decontamination detection scratch (`_decon.fa.gz`, `_cluster.tsv`).
+    """
+    output:
+        report="results/dbs/cleanup_report.txt",
+    localrule: True
+    run:
+        import os
+        import shutil
+        from snakemake.exceptions import WorkflowError
+
+        removed = []
+        stats = {"freed": 0}
+
+        def _rm(path):
+            if os.path.isdir(path) and not os.path.islink(path):
+                stats["freed"] += sum(
+                    os.path.getsize(os.path.join(r, f))
+                    for r, _, fs in os.walk(path)
+                    for f in fs
+                    if os.path.exists(os.path.join(r, f))
+                )
+                shutil.rmtree(path)
+                removed.append(path)
+            elif os.path.lexists(path):
+                if os.path.exists(path):
+                    stats["freed"] += os.path.getsize(path)
+                os.remove(path)
+                removed.append(path)
+
+        if config.get("keep_intermediates", True):
+            msg = (
+                "keep_intermediates is true (default) -> nothing deleted. Set "
+                "`keep_intermediates: false` in the config to reclaim space."
+            )
+        else:
+            # runtime gate (replaces a DAG dependency on BUILD_TARGETS): only
+            # reclaim once every db's final search indices exist.
+            finals = (
+                expand("results/dbs/{db}/{db}_{dbtype}",
+                       db=FULL_INDEX_DBS, dbtype=config["dbs"]["type"])
+                + expand("results/dbs/{cdb}/{cdb}_{dbtype}",
+                         cdb=CLUSTERED_DBS, dbtype=config["dbs"]["type"])
+            )
+            missing = [f for f in finals if not os.path.exists(f)]
+            if missing:
+                raise WorkflowError(
+                    "cleanup: refusing to run - these final deliverables are "
+                    f"missing, build them first (`snakemake build`): {missing}"
+                )
+
+            # Kept final fastas that are relative symlinks: the soft-decontaminated
+            # full fasta (-> raw) and the published clustered fasta (-> the
+            # parent-side merge output). When cleanup deletes what such a symlink
+            # points to, PROMOTE the deliverable to a real file instead of leaving
+            # a dangling link.
+            kept_links = []
+            for db in get_database_targets():
+                if not (_has_cluster_variant(db) and not _cluster_keep_full(db)):
+                    kept_links.append(_final_db_fa(db))
+                if _has_cluster_variant(db):
+                    kept_links.append(_final_db_fa(f"{db}{CLUSTER_SUFFIX}"))
+            kept_links = [f for f in kept_links if os.path.islink(f)]
+
+            def _reclaim(path):
+                """rm `path`, unless a kept deliverable symlinks to it - then
+                rename `path` onto that symlink (a ~free move), turning the
+                deliverable into a real, standalone file."""
+                if os.path.lexists(path) and not os.path.islink(path):
+                    rp = os.path.realpath(path)
+                    for link in kept_links:
+                        if os.path.islink(link) and os.path.realpath(link) == rp:
+                            os.replace(path, link)  # symlink -> real file
+                            removed.append(f"{path} (promoted -> {link})")
+                            return
+                _rm(path)
+
+            for db in get_database_targets():
+                final = _final_db_fa(db)
+                has_var = _has_cluster_variant(db)
+                # `cluster.keep_full: false` -> the full db is disposable too.
+                drop_full = has_var and not _cluster_keep_full(db)
+
+                # raw is disposable when it isn't the final (db is decontaminated),
+                # or when we're dropping the full db entirely.
+                if _fa_raw(db) != final or drop_full:
+                    _reclaim(_fa_raw(db))
+                if drop_full:
+                    _rm(final)  # the decontaminated full fasta, if that was final
+                if has_var:
+                    # the parent-side clustered fasta backs the published sibling
+                    # (a symlink); _reclaim promotes that sibling to a real file.
+                    _reclaim(_fa_clustered(db))
+                    _rm(f"results/dbs/{db}/cluster/{db}_mmseqs")
+                    for ext in mmseqs_ext:
+                        _rm(f"results/dbs/{db}/cluster/{db}_mmseqs{ext}")
+                    _rm(f"results/dbs/{db}/cluster/tmp")
+                # decontamination detection scratch (provenance TSVs are kept)
+                if _is_db_decon(db):
+                    _rm(f"results/dbs/{db}/decontaminate/{db}_decon.fa.gz")
+                    _rm(f"results/dbs/{db}/decontaminate/{db}_cluster.tsv")
+            msg = f"removed {len(removed)} path(s), freed ~{stats['freed'] / 1e9:.1f} GB"
+
+        os.makedirs(os.path.dirname(output.report), exist_ok=True)
+        with open(output.report, "w") as fh:
+            fh.write(msg + "\n")
+            for p in removed:
+                fh.write(f"removed\t{p}\n")
+        print(msg)
+
+
+rule package_custom:
+    """Author-only (custom curation): build the versioned release-custom bundle
+    (proteomes + BUSCO + metadata) from data/custom_proteomes/CUS<id>.fa. Upload
+    it (eventually Zenodo) and pin dbs.build.repdb.custom_bundle to it."""
+    input:
+        "results/custom/repdb_custom_bundle.tar.gz"

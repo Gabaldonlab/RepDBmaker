@@ -199,6 +199,7 @@ ggsave(snakemake@output[["plot"]], final_plot, width = 12, height = 12)
 b <- function(x) coalesce(x, "")
 df %>%
     transmute(mnemo,
+              completeness,
               lineage = paste0("d__", b(k), ";p__", b(p), ";c__", b(c), ";o__", b(o),
                                ";f__", b(f), ";g__", b(g), ";s__", b(s))) %>%
     write_delim(snakemake@output[["tax"]], delim = "\t", col_names = FALSE)

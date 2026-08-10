@@ -83,6 +83,11 @@ rule taxonomy_harmonization_report:
 
 
 rule db_stats:
+    # real dbs + repdb-as-reference (_C_REAL_REF); genome-table based. clustered
+    # variants use clustdb_stats. make_db_fasta(repdb) needs this even when repdb
+    # is not a build target (decontamination reference for custom dbs).
+    wildcard_constraints:
+        db=_C_REAL_REF,
     input:
         "results/dbs/{db}/genome_table.tsv",
     output:
@@ -100,6 +105,8 @@ cut -f1,4- | sed 's/.faa.gz//' > {output}
 
 
 rule clustdb_stats:
+    wildcard_constraints:
+        db=_C_PARENTS,
     input:
         repr_all_clades,
     output:
@@ -131,7 +138,7 @@ def _db_meta_contaminants(wildcards):
 
 
 def _custom_busco(wildcards):
-    # optional user-provided BUSCO scores for custom proteomes
+    # optional custom completeness scores (id<TAB>completeness); absent -> NA.
     path = config.get("files", {}).get("new_genomes_busco")
     return [path] if path else []
 
@@ -139,7 +146,10 @@ def _custom_busco(wildcards):
 rule make_db_meta:
     """Per-organism provenance metadata for a database (RepDB or a custom db),
     written to results/meta/<db>_meta.tsv. Includes the taxdump taxid.
+    Real dbs only - a clustered variant is a subset of its parent's organisms.
     """
+    wildcard_constraints:
+        db=_C_REAL,
     input:
         tax=_db_meta_tax,
         stats="results/stats/{db}_stats.tsv",

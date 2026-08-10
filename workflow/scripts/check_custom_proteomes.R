@@ -13,7 +13,6 @@
 #   ID        unique mnemonic, must start with 'CUS'
 #   Species   organism name (single organism per row)
 #   Data_type e.g. genome / transcriptome (informational)
-#   Fasta     path to the proteome FASTA for this entry
 #   Lineage   exactly 7 ';'-separated ranks with the prefixes
 #             d__ p__ c__ o__ f__ g__ s__ , e.g.
 #             d__Eukaryota;p__Discoba;c__Jakobida;o__Jakobida;f__Ophirinina;g__Agogonia;s__Agogonia voluta
@@ -26,9 +25,7 @@
 #   ERROR   lineage not exactly 7 ranks    (else separate() mangles it)
 #   ERROR   lineage rank has wrong/missing prefix (d__,p__,c__,o__,f__,g__,s__)
 #   ERROR   lineage rank empty after its prefix
-#   ERROR   empty Fasta path
-#   ERROR   duplicate Fasta path
-#   ERROR   Fasta path missing or empty     (only with --check-fasta)
+#   ERROR   duplicate Fasta path (only if a legacy Fasta column is present)
 #   ERROR   domain (d__) is not a recognized superkingdom
 #           (Eukaryota / Bacteria / Archaea / Viruses)
 #   ERROR   Species binomial does not match the s__ rank (mislabel / cross-organism row)
@@ -40,6 +37,18 @@
 #           taxa the reference does not know - listed so novel additions can be
 #           reviewed (the only warning; only with a reference)
 #
+# FASTA content checks (--check-fasta / params$check_fasta; only run when a
+# FASTA path is resolvable for the row - see --proteome-dir below):
+#   ERROR   FASTA file not found / unreadable / empty
+#   ERROR   no FASTA records ('>' headers) in the file
+#   ERROR   a record has no sequence
+#   ERROR   invalid character in a sequence line: anything other than letters
+#           or '*' (stop) - most often embedded whitespace from block-formatted
+#           or manually-edited FASTA. This is the same class of defect that,
+#           left unchecked, silently passes through parse_gnm_v3.py and only
+#           surfaces much later as diamond's cryptic "Invalid character in
+#           sequence: ' '", deep inside the final multi-GB RepDB FASTA.
+#
 # Custom proteomes are not required to be eukaryotic. Each row is checked against
 # the reference matching its own domain, built WITHOUT the custom proteomes
 # (mnemo<TAB>lineage): Eukaryota -> eukaryotes_taxonomy_ref.tsv,
@@ -50,14 +59,20 @@
 #   Rscript workflow/scripts/check_custom_proteomes.R resources/custom_genomes_repdb.csv
 #   Rscript workflow/scripts/check_custom_proteomes.R <file> \
 #     --reference euk_ref.tsv --reference-prok gtdb_tax.tsv \
-#     --reference-virus virus_tax.tsv --check-fasta
+#     --reference-virus virus_tax.tsv --check-fasta --proteome-dir resources/custom_proteomes
+#
+# --check-fasta content-checks each row's FASTA (see FASTA content checks
+# above); in CLI mode it needs --proteome-dir (the files.custom_proteomes
+# folder, CUS<id>.* by id) to resolve each row's file - without it, or under
+# Snakemake, the fasta paths already come from snakemake@input[["fasta"]].
 #
 # It can also be called from Snakemake (snakemake@input[["table"]],
-# snakemake@input[["reference"]]).
+# snakemake@input[["reference"]], snakemake@input[["fasta"]],
+# snakemake@params[["check_fasta"]]).
 
 suppressMessages(library(tidyverse))
 
-REQUIRED_COLUMNS <- c("ID", "Species", "Data_type", "Fasta", "Lineage")
+REQUIRED_COLUMNS <- c("ID", "Species", "Data_type", "Lineage")
 RESERVED_PREFIXES <- c("UP", "EP", "P10")
 RANK_PREFIXES <- c("d__", "p__", "c__", "o__", "f__", "g__", "s__")
 RANK_LABELS <- c("domain", "phylum", "class", "order", "family", "genus", "species")
@@ -195,6 +210,69 @@ check_internal_conflicts <- function(rows) {
   }
 }
 
+# ---- FASTA content check (--check-fasta / check_fasta) -----------------------
+# Sequence lines may contain only letters or '*' (stop codon); anything else -
+# most often embedded whitespace from block-formatted or manually-edited
+# FASTA - silently passes through parse_gnm_v3.py's cleanup untouched and only
+# surfaces much later as diamond's "Invalid character in sequence: ' '", deep
+# inside the final multi-GB RepDB FASTA. Reports the first offending character
+# per file (enough to act on) rather than every occurrence.
+VALID_SEQ_LINE <- "^[A-Za-z*]*$"
+
+check_fasta_file <- function(path, where) {
+  if (!file.exists(path)) {
+    add_error(sprintf("%s: FASTA file not found: %s", where, path))
+    return(invisible())
+  }
+  if (file.info(path)$size == 0) {
+    add_error(sprintf("%s: FASTA file is empty: %s", where, path))
+    return(invisible())
+  }
+  lines <- tryCatch(readLines(path, warn = FALSE), error = function(e) NULL)
+  if (is.null(lines)) {
+    add_error(sprintf("%s: could not read FASTA file (corrupt/gzip mismatch?): %s",
+                      where, path))
+    return(invisible())
+  }
+  n_records <- 0L
+  hdr <- NA_character_
+  seq_len <- 0L
+  reported <- FALSE
+  flag_empty_record <- function() {
+    if (!is.na(hdr) && seq_len == 0L) {
+      add_error(sprintf("%s: record '%s' in %s has no sequence", where, hdr, path))
+    }
+  }
+  for (ln in lines) {
+    if (startsWith(ln, ">")) {
+      flag_empty_record()
+      n_records <- n_records + 1L
+      hdr <- ln
+      seq_len <- 0L
+      next
+    }
+    seq_len <- seq_len + nchar(trimws(ln))
+    if (!reported && ln != "" && !grepl(VALID_SEQ_LINE, ln)) {
+      bad <- regmatches(ln, regexpr("[^A-Za-z*]", ln))
+      add_error(sprintf(
+        "%s: invalid character '%s' in the sequence of record '%s' in %s (likely embedded whitespace or a non-residue character)",
+        where, bad, hdr, path))
+      reported <- TRUE
+    }
+  }
+  flag_empty_record()
+  if (n_records == 0L) {
+    add_error(sprintf("%s: no FASTA records ('>' headers) found in %s", where, path))
+  }
+}
+
+# id (from the file's own name, before the first '.') -> path
+fasta_by_id_from_paths <- function(paths) {
+  if (length(paths) == 0) return(list())
+  ids <- sub("\\..*$", "", basename(paths))
+  setNames(as.list(paths), ids)
+}
+
 # ---- argument handling -------------------------------------------------------
 # out_path is a marker written on success (only when run from Snakemake).
 # reference_path is an optional reference eukaryotic taxonomy for the conflict
@@ -206,6 +284,8 @@ reference_paths <- list(euk = NULL, prok = NULL, virus = NULL)
 # collide with. Pipeline 2 passes the universe here so a user-supplied custom
 # proteome cannot reuse an id already present (public or release custom).
 existing_path <- NULL
+fasta_by_id <- list()
+proteome_dir_for_cli <- NULL
 
 if (exists("snakemake")) {
   table_path <- snakemake@input[["table"]]
@@ -219,6 +299,10 @@ if (exists("snakemake")) {
   reference_paths$prok <- opt_ref("reference_prok")
   reference_paths$virus <- opt_ref("reference_virus")
   existing_path <- opt_ref("existing")
+  fasta_input <- tryCatch(snakemake@input[["fasta"]], error = function(e) NULL)
+  if (check_fasta && !is.null(fasta_input) && length(fasta_input) > 0) {
+    fasta_by_id <- fasta_by_id_from_paths(fasta_input)
+  }
 } else {
   args <- commandArgs(trailingOnly = TRUE)
   check_fasta <- "--check-fasta" %in% args
@@ -238,14 +322,18 @@ if (exists("snakemake")) {
     reference_paths[[key]] <- r$value
   }
   r <- take_flag(args, "--existing"); args <- r$args; existing_path <- r$value
+  r <- take_flag(args, "--proteome-dir"); args <- r$args; proteome_dir <- r$value
   if (length(args) != 1) {
     stop(paste("usage: check_custom_proteomes.R <custom_proteome.tsv>",
                "[--reference <euk_tax.tsv>] [--reference-prok <gtdb_tax.tsv>]",
                "[--reference-virus <virus_tax.tsv>] [--existing <ids.tsv>]",
-               "[--check-fasta]"))
+               "[--check-fasta] [--proteome-dir <dir>]"))
   }
   table_path <- args[[1]]
   out_path <- NULL
+  # ids aren't known until the table is read below; stash the dir and resolve
+  # per-id paths there with Sys.glob(file.path(dir, paste0(id, ".*")))
+  proteome_dir_for_cli <- if (check_fasta) proteome_dir else NULL
 }
 
 if (!file.exists(table_path)) {
@@ -258,6 +346,16 @@ df <- suppressWarnings(suppressMessages(
   read_tsv(table_path, col_types = cols(.default = "c"), name_repair = "minimal")))
 df <- df[, !is.na(names(df)) & names(df) != "", drop = FALSE]
 
+# domains (d__) actually present in the table, so we only parse the reference for
+# domains that occur - the GTDB taxonomy is huge and slow to parse, so it is read
+# only when there is a prokaryotic custom proteome to check.
+present_domains <- character(0)
+if ("Lineage" %in% names(df)) {
+  lin <- trimws(df[["Lineage"]])
+  lin <- lin[!is.na(lin) & lin != ""]
+  present_domains <- unique(trimws(sub("^d__", "", sub(";.*", "", lin))))
+}
+
 # optional reference taxonomies for the conflict check, mapped to the domains
 # they cover (prokaryote reference serves both Bacteria and Archaea).
 ref_by_domain <- list()
@@ -268,7 +366,7 @@ for (spec in list(list("euk", "Eukaryota"),
                   list("prok", c("Bacteria", "Archaea")),
                   list("virus", "Viruses"))) {
   path <- reference_paths[[spec[[1]]]]
-  if (usable_ref(path)) {
+  if (any(spec[[2]] %in% present_domains) && usable_ref(path)) {
     message(sprintf("Checking %s lineages against reference: %s",
                     paste(spec[[2]], collapse = "/"), path))
     info <- parse_reference(path)
@@ -326,7 +424,7 @@ for (i in seq_len(nrow(df))) {
     if (is.na(v)) "" else trimws(v)
   }
   rid <- get("ID")
-  if (rid == "" && get("Lineage") == "" && get("Fasta") == "") next  # blank line
+  if (rid == "" && get("Lineage") == "") next  # blank line
   n_rows <- n_rows + 1L
   where <- sprintf("line %d (ID=%s)", lineno, if (rid == "") "<empty>" else rid)
 
@@ -387,19 +485,35 @@ for (i in seq_len(nrow(df))) {
     custom_lineages[[length(custom_lineages) + 1]] <- list(where = where, values = values)
   }
 
-  # Fasta path
-  fasta <- get("Fasta")
-  if (fasta == "") {
-    add_error(sprintf("%s: empty Fasta path", where))
-  } else {
-    if (!is.null(seen_fasta[[fasta]])) {
-      add_error(sprintf("%s: duplicate Fasta path, first seen at line %d",
-                        where, seen_fasta[[fasta]]))
-    } else {
-      seen_fasta[[fasta]] <- lineno
+  # Optional legacy Fasta column (proteomes now live in files.custom_proteomes,
+  # one file per CUS id); only checked for duplicates if present.
+  legacy_fasta <- ""
+  if ("Fasta" %in% names(df)) {
+    legacy_fasta <- get("Fasta")
+    if (legacy_fasta != "") {
+      if (!is.null(seen_fasta[[legacy_fasta]])) {
+        add_error(sprintf("%s: duplicate Fasta path, first seen at line %d",
+                          where, seen_fasta[[legacy_fasta]]))
+      } else {
+        seen_fasta[[legacy_fasta]] <- lineno
+      }
     }
-    if (check_fasta && (!file.exists(fasta) || file.info(fasta)$size == 0)) {
-      add_error(sprintf("%s: Fasta path missing or empty: %s", where, fasta))
+  }
+
+  # FASTA content check (--check-fasta): resolve this row's file, preferring
+  # the id-based path (files.custom_proteomes / Snakemake `fasta` input) and
+  # falling back to the legacy Fasta column path if that's what the table uses.
+  if (check_fasta && rid != "") {
+    fasta_path <- fasta_by_id[[rid]]
+    if (is.null(fasta_path) && !is.null(proteome_dir_for_cli)) {
+      hits <- Sys.glob(file.path(proteome_dir_for_cli, paste0(rid, ".*")))
+      if (length(hits) > 0) fasta_path <- hits[[1]]
+    }
+    if (is.null(fasta_path) && legacy_fasta != "") {
+      fasta_path <- legacy_fasta
+    }
+    if (!is.null(fasta_path)) {
+      check_fasta_file(fasta_path, where)
     }
   }
 }

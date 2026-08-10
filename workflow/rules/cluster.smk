@@ -65,6 +65,8 @@ _validate_cluster_levels()
 
 
 rule write_cluster_params:
+    wildcard_constraints:
+        db=_C_PARENTS,
     output:
         params="results/dbs/{db}/cluster/cluster_params.yaml",
     localrule: True
@@ -82,8 +84,18 @@ rule write_cluster_params:
 
 
 checkpoint db_clades:
+    wildcard_constraints:
+        db=_C_PARENTS,
     input:
-        "results/taxonomies/{db}_taxonomy.tsv",
+        # id + 7 ranks for the FULL selection ...
+        tax="results/taxonomies/{db}_taxonomy.tsv",
+        # ... intersected with the genomes actually built into this db. In test
+        # mode genome_table.tsv is subsampled (its inputs go through
+        # _test_subset), so without this intersection db_clades would list every
+        # clade in the full taxonomy and the empty ones would make cluster_clade
+        # fail on empty input. In a full run the two sets coincide, so this is a
+        # no-op. genome_table col2 (file_code) == taxonomy col1 (id).
+        table="results/dbs/{db}/genome_table.tsv",
     output:
         "results/dbs/{db}/cluster/{db}_clades.txt",
     params:
@@ -94,7 +106,12 @@ checkpoint db_clades:
     conda:
         "../envs/utils.yaml"
     shell:
-        "cut -f{params.rank} {input} | sort -u | grep . > {output}"
+        """
+cut -f2 {input.table} | sort -u > {output}.codes
+awk -F'\\t' 'NR==FNR{{present[$1]; next}} ($1 in present)' {output}.codes {input.tax} | \
+cut -f{params.rank} | sort -u | grep . > {output}
+rm -f {output}.codes
+"""
 
 
 # Read taxonomic clades from GTDB taxonomy file
@@ -119,6 +136,8 @@ def cluster_all_clades(wildcards):
 
 
 rule get_clade:
+    wildcard_constraints:
+        db=_C_PARENTS,
     input:
         mmseqs=rules.make_mmseqsdb_clustering.output.db,
         mmseqs_extra=rules.make_mmseqsdb_clustering.output.db_extra,
@@ -127,7 +146,9 @@ rule get_clade:
         tax="results/universe/universe.tsv",
         taxdump=rules.create_taxdump.output.full_taxdump,
     output:
-        temp("results/dbs/{db}/cluster/tmp/{clade}/{clade}.fasta"),
+        # NOT temp(): reclaimed by `cleanup` (which removes cluster/tmp), not by
+        # Snakemake - see make_mmseqsdb_clustering. Keeps re-invoked builds no-op.
+        "results/dbs/{db}/cluster/tmp/{clade}/{clade}.fasta",
     params:
         level=lambda wildcards: _get_cluster_settings(wildcards.db).get(
             "level", "class"
@@ -164,11 +185,16 @@ rm {output}_db*
 
 
 rule cluster_clade:
+    wildcard_constraints:
+        db=_C_PARENTS,
     input:
         rules.get_clade.output,
     output:
-        seqs=temp("results/dbs/{db}/cluster/tmp/{clade}/{clade}_rep_seq.fasta"),
-        clusters=temp("results/dbs/{db}/cluster/tmp/{clade}/{clade}_cluster.tsv"),
+        # NOT temp(): reclaimed by `cleanup` (cluster/tmp), not by Snakemake.
+        # clustdb_stats + merge_clustered read these directly, so temp() here is
+        # what dragged the whole clustering chain on every re-invocation.
+        seqs="results/dbs/{db}/cluster/tmp/{clade}/{clade}_rep_seq.fasta",
+        clusters="results/dbs/{db}/cluster/tmp/{clade}/{clade}_cluster.tsv",
     params:
         identity=lambda wildcards: _get_cluster_settings(wildcards.db).get(
             "identity", 0.9
@@ -180,23 +206,30 @@ rule cluster_clade:
         "../envs/homology.yaml"
     localrule: True
     # group: "cluster_db"
-    threads: 2
+    threads: 8
     shell:
         """
 clusterdir=$(dirname {output.seqs})
+tmp=$(mktemp -d "${{TMPDIR:-/tmp}}/mmseqs.XXXXXX")
 
-mmseqs easy-linclust {input} $clusterdir/{wildcards.clade} $TMPDIR \
+mmseqs easy-linclust {input} $clusterdir/{wildcards.clade} "$tmp" \
 --min-seq-id {params.identity} -c {params.coverage} --cluster-mode 2 -e 0.001 --threads {threads}
+
+rm -rf "$tmp"
 rm $clusterdir/{wildcards.clade}_all_seqs.fasta
 """
 
 
 rule merge_clustered:
+    # keyed on the PARENT db; produces that db's clustered fasta as an
+    # intermediate, which publish_clustered_variant exposes as a sibling db.
+    wildcard_constraints:
+        db=_C_PARENTS,
     input:
         seqs=repr_all_clades,
         clusters=cluster_all_clades,
     output:
-        seqs=temp("results/dbs/{db}/{db}_clustered.fa.gz"),
+        seqs="results/dbs/{db}/{db}_clustered.fa.gz",
         clusters="results/dbs/{db}/{db}_clusters.tsv",
     # localrule: True
     conda:
@@ -205,4 +238,27 @@ rule merge_clustered:
         """
 cat {input.seqs} | gzip > {output.seqs}
 cat {input.clusters} > {output.clusters}
+"""
+
+
+rule publish_clustered_variant:
+    wildcard_constraints:
+        parent=_C_PARENTS,
+    input:
+        fa="results/dbs/{parent}/{parent}_clustered.fa.gz",
+        headmap="results/dbs/{parent}/{parent}.map",
+        noheadmap="results/dbs/{parent}/{parent}_nohead.map",
+    output:
+        fa="results/dbs/{parent}_clustered/{parent}_clustered.fa.gz",
+        headmap="results/dbs/{parent}_clustered/{parent}_clustered.map",
+        noheadmap="results/dbs/{parent}_clustered/{parent}_clustered_nohead.map",
+    localrule: True
+    shell:
+        """
+mkdir -p $(dirname {output.fa})
+# relative symlinks (ln -rs), not hard links: own inode/mtime, no shared-inode
+# mtime poisoning, ~0 bytes. cp fallback just in case.
+ln -rsf {input.fa} {output.fa} 2>/dev/null || cp {input.fa} {output.fa}
+ln -rsf {input.headmap} {output.headmap} 2>/dev/null || cp {input.headmap} {output.headmap}
+ln -rsf {input.noheadmap} {output.noheadmap} 2>/dev/null || cp {input.noheadmap} {output.noheadmap}
 """

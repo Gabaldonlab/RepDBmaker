@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "If you use RepDBmaker, please cite it."
+title: RepDBmaker
+abstract: >-
+  A Snakemake workflow for building taxonomically annotated protein sequence
+  databases from public resources and custom genome collections.
+version: 0.0.1
+repository-code: "https://github.com/Gabaldonlab/RepDBmaker"
+license: MIT
+authors:
+  - family-names: Mutti
+    given-names: Giacomo
+  # TODO: add remaining authors

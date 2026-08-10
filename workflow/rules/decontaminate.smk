@@ -52,14 +52,22 @@ rule concat_fasta_decont:
         repdb="results/dbs/repdb/repdb.fa.gz",
         other="results/dbs/{db}/{db}.fa.gz",
     output:
-        temp("results/dbs/{db}/decontaminate/{db}_decon.fa.gz"),
+        # NOT temp(): reclaimed by `cleanup` (which removes _decon.fa.gz), not by
+        # Snakemake. contaminants.tsv/pair_counts.tsv sit downstream of this, so
+        # temp() here dragged the whole decontamination chain on re-invocation.
+        "results/dbs/{db}/decontaminate/{db}_decon.fa.gz",
     localrule: True
     conda:
         "../envs/utils.yaml"
     shell:
         """
 if [ "{wildcards.db}" == "repdb" ]; then
-    ln -s $(realpath {input.repdb}) {output}
+    # relative symlink (ln -rs), NOT a hard link: a hard link shares the raw
+    # fasta's inode, so a LATER hard link to it (decontaminate_db) bumps the
+    # shared mtime and retroactively invalidates this file, rerunning the chain
+    # forever. A relative symlink has its own inode/mtime (tracked by Snakemake
+    # via lstat) and stays ~0 bytes. cp fallback just in case.
+    ln -rsf {input.repdb} {output} 2>/dev/null || cp {input.repdb} {output}
 else
     cat {input.repdb} {input.other} > {output}
 fi
@@ -118,8 +126,6 @@ cut -f1 {input.clusters} | uniq -d > {output.dups}
 
 echo "splitting the file"
 split {input.clusters} -n l/24 ${{cont_dir}}/chunk_
-
-mkdir -p ${{cont_dir}}/results/
 
 > {output.clusters}
 for file in ${{cont_dir}}/chunk_*; do
@@ -240,7 +246,9 @@ rule decontaminate_db:
     In both modes the contaminants data frame (rule get_contaminants) is produced.
     """
     input:
-        fa=get_db_fa,
+        # decontamination is a filter on the RAW assembled fasta (detection ran
+        # on the raw set too); clustering, if enabled, consumes this output.
+        fa=lambda w: f"results/dbs/{w.db}/{w.db}.fa.gz",
         contaminants=rules.get_contaminants.output.ids,
     output:
         "results/dbs/{db}/{db}_decontaminated.fa.gz",
@@ -257,7 +265,11 @@ if [ "{params.mode}" = "hard" ]; then
     seqkit grep -v -f {input.contaminants} {input.fa} -o {output}
 elif [ "{params.mode}" = "soft" ]; then
     echo "soft filter: keeping all sequences (contaminants flagged in contaminants.tsv)"
-    cp {input.fa} {output}
+    # no sequences removed -> relative symlink (ln -rs), not a copy or a hard
+    # link. A hard link here is the LATE link that poisons the raw fasta's shared
+    # inode mtime and reruns the decontamination chain forever; a relative
+    # symlink has its own inode/mtime and stays ~0 bytes. cp fallback just in case.
+    ln -rsf {input.fa} {output} 2>/dev/null || cp {input.fa} {output}
 else
     echo "ERROR: invalid decontaminate.filter '{params.mode}' (expected 'soft' or 'hard')" >&2
     exit 1

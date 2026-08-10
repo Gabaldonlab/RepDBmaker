@@ -1,0 +1,36 @@
+# EXAMPLE user config — build your OWN database(s) from a published RepDB
+# universe, without re-running the (slow, fragile) taxonomy harmonization.
+#
+#   snakemake build --configfile config/example.yaml --sdm conda -j 8
+#
+# Pin the universe so Pipeline 1 (harmonization/selection) is skipped: the
+# taxdump and every db's taxonomy come straight from the frozen file, and only
+# the sequences you actually need are fetched.
+
+versions:                       # must match the pinned universe's release
+  gtdb: "release226"
+  unieuk: "0.0.1-pre_release"
+  EukProt: "3"
+  taxdump: "2026-07-01"
+
+dbs:
+  type: ["diamond"]             # diamond / mmseqs / blastp (any subset)
+  build:
+    custom:
+      smalleuks:
+        ids: resources/ids/eukas_50.ids
+        cluster: {level: phylum, identity: 0.3, coverage: 0.3, keep_full: False}
+        decontaminate:
+          identity: 0.7
+          coverage: 0.3
+          cov_mode: 3
+          prop_euka: 0.5
+          filter: hard
+
+files:
+  # your own custom proteomes (folder of CUS<id>.faa.gz | .fa) + their metadata
+  # table; only needed if your ids include CUS entries not in the published bundle.
+  custom_proteomes: "resources/custom_proteomes"
+  new_genomes: "resources/custom_genomes_repdb.csv"
+  clades_to_keep: "resources/clades_tokeep.txt"
+  genomes_to_exclude: "resources/exclude.txt"
