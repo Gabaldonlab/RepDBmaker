@@ -21,14 +21,21 @@ def repdb_zenodo():
     """Pinned Zenodo record for repdb's heavy CONSTRUCTION artifacts, or None.
 
     When ``dbs.build.repdb.zenodo`` is set, `snakemake build` fetches the raw
-    fasta, its maps, the decontamination report, the cluster membership table
-    and the taxdump directly from Zenodo instead of assembling, decontaminating
-    and clustering repdb from raw sources - a second, further-downstream seam
+    fasta, the decontamination report, the cluster membership table and the
+    taxdump directly from Zenodo instead of assembling, decontaminating and
+    clustering repdb from raw sources - a second, further-downstream seam
     than the universe pin above (that one still redoes all of that; this one
     skips it). See workflow/rules/zenodo_fetch.smk and docs/releasing.md.
     Independent of `dbs.build.repdb.universe`: nothing under `zenodo:` is
     derived from the universe, so Pipeline 1 (`snakemake sample`) isn't needed
     at all just to build repdb from a Zenodo-pinned release.
+
+    Only 4 files are hosted - `.map`/`_nohead.map` and `contaminants.txt` are
+    each derivable from another hosted file (see zenodo_fetch.smk), so aren't
+    fetched at all; `repdb_clustered.fa.gz` is derived from `fasta` +
+    `clusters` rather than hosted separately; and `repdb_accession_map.txt`
+    (original-source-ID -> repdb-ID) is pure traceability with no functional
+    use anywhere downstream, so it isn't fetched either.
 
     Expected shape::
 
@@ -39,12 +46,8 @@ def repdb_zenodo():
                 base_url: "https://zenodo.org/records/<record_id>/files"
                 files:
                   fasta:            {name: repdb.fa.gz, sha256: "..."}
-                  accession_map:    {name: repdb_accession_map.txt, sha256: "..."}
-                  map:              {name: repdb.map, sha256: "..."}
-                  nohead_map:       {name: repdb_nohead.map, sha256: "..."}
                   clusters:         {name: repdb_clusters.tsv, sha256: "..."}
                   contaminants_tsv: {name: repdb_contaminants.tsv, sha256: "..."}
-                  contaminants_ids: {name: repdb_contaminants.txt, sha256: "..."}
                   taxdump:          {name: repdb_taxdump.tar.gz, sha256: "..."}
     """
     repdb_conf = (config.get("dbs", {}).get("build", {}) or {}).get("repdb") or {}

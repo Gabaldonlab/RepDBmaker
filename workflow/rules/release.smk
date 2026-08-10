@@ -101,18 +101,21 @@ rule stage_zenodo_assets:
     the record exists (see docs/releasing.md and zenodo_fetch.smk - the
     reverse of this rule is what fetch_repdb_* consume at reproduce time).
 
+    Only 4 files are staged - `.map`/`_nohead.map` and `contaminants.txt` are
+    each derivable at fetch time from another staged file (see
+    zenodo_fetch.smk); `repdb_accession_map.txt` (original-source-ID ->
+    repdb-ID) is pure traceability with no functional use downstream, so it
+    isn't staged either - it still exists locally from the real build if
+    anyone wants it, just not on Zenodo.
+
     Symlinks rather than copies into the staging dir (these are tens of GB;
     staging must not double disk usage), except the taxdump, which is a
     directory and has to be tarred to be a single uploadable file.
     """
     input:
         fa="results/dbs/repdb/repdb.fa.gz",
-        idmap="results/dbs/repdb/repdb_accession_map.txt",
-        headermap="results/dbs/repdb/repdb.map",
-        noheadermap="results/dbs/repdb/repdb_nohead.map",
         clusters="results/dbs/repdb/repdb_clusters.tsv",
         contaminants_tsv="results/dbs/repdb/decontaminate/contaminants.tsv",
-        contaminants_ids="results/dbs/repdb/decontaminate/contaminants.txt",
         taxdump="results/taxdump/repdb_taxdump/",
     output:
         manifest="resources/releases/{version}/zenodo_stage/MANIFEST.txt",
@@ -135,12 +138,8 @@ rule stage_zenodo_assets:
         # key -> (Zenodo filename, source path)
         assets = {
             "fasta": ("repdb.fa.gz", input.fa),
-            "accession_map": ("repdb_accession_map.txt", input.idmap),
-            "map": ("repdb.map", input.headermap),
-            "nohead_map": ("repdb_nohead.map", input.noheadermap),
             "clusters": ("repdb_clusters.tsv", input.clusters),
             "contaminants_tsv": ("repdb_contaminants.tsv", input.contaminants_tsv),
-            "contaminants_ids": ("repdb_contaminants.txt", input.contaminants_ids),
         }
 
         checksums = {}
