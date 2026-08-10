@@ -5,7 +5,7 @@
 # build; the large downloads (GTDB tarball, EukProt archive, virus zip) and
 # the QC/Krona reports still run on the full sources. Mutually exclusive with
 # reproduce mode (a pinned universe).
-test: 25
+test: False
 
 # Disk cleanup: when false, running `snakemake cleanup` (an explicit target,
 # never part of `all`/`build`) deletes the big NON-final intermediates once
@@ -13,7 +13,7 @@ test: 25
 # fastas, the clustering mmseqs DB and per-clade scratch, and the decontamination
 # detection scratch. All of it is regenerable from the (pinned) universe. Leave
 # true (default) to keep everything; the cleanup target is then a safe no-op.
-keep_intermediates: true
+keep_intermediates: True
 
 dbs:
   type: ["diamond", "mmseqs"] 
@@ -75,4 +75,4 @@ dbs:
         # keep_full: false -> `cleanup` treats the full (unclustered) repdb as a
         # disposable intermediate and its indices are not built; only
         # repdb_clustered ships. true (default) keeps both.
-        keep_full: true
+        keep_full: True
