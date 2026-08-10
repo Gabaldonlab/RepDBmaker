@@ -28,6 +28,14 @@ Three hosting tiers, split by what each artifact *is* rather than by size:
 
 Replace `<N>` with the max number of parallel SLURM jobs.
 
+`clusterrepdb` (Pipeline 2's second database) is a clustered version of
+RepDB - the same `repdb.ids` selection, clustered per class - configured
+under `dbs.build.custom` in `config/repdb.yaml`. Put your curated custom
+proteomes in `resources/custom_proteomes/` (`CUS<id>.fa|.faa.gz`) before
+step 1: since `custom_bundle` there points at a rule output, `build`
+auto-packages the release custom bundle from that folder for you; unset
+`custom_bundle` to read the folder directly instead.
+
 ```bash
 # 0. config/repdb.yaml: test mode off (test: false). A release is never
 #    frozen in test mode; make_release also forces it off regardless.
