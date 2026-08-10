@@ -26,9 +26,9 @@ def _get_cluster_settings(db):
 
 
 def _validate_cluster_levels():
-    if not isinstance(config.get("dbs", {}).get("build", {}), dict):
+    build_conf = config.get("dbs", {}).get("build", {})
+    if not isinstance(build_conf, dict):
         return
-    build_conf = config["dbs"]["build"]
     # check repdb cluster config
     repdb_conf = build_conf.get("repdb")
     if isinstance(repdb_conf, dict):
