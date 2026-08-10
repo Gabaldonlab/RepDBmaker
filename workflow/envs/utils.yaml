@@ -2,6 +2,7 @@ channels:
   - bioconda
   - conda-forge
 dependencies:
+  - python>=3.9 # compact_taxdump_ids.py (rule create_taxdump)
   - csvtk
   - ncbi-datasets-cli
   - newick_utils
