@@ -295,7 +295,8 @@ rule create_taxdump:
     """Build the taxdump from the UNIVERSE (id + 7 ranks), so it always covers
     the full set of available proteomes and is defined by the versioned universe
     artifact rather than by whichever subset a given database selects. taxids are
-    hashed per-lineage by taxonkit, so they are identical to a fresh full run."""
+    hashed per-lineage by taxonkit, so they are identical to a fresh full run.
+    """
     input:
         universe="results/universe/universe.tsv",
     output:
@@ -310,6 +311,7 @@ awk -F'\\t' 'NR>1' {input.universe} | cut -f1,3-9 > "$tmp"
 taxonkit create-taxdump -A1 "$tmp" --out-dir {output.full_taxdump} --force \
 --rank-names "superkingdom","phylum","class","order","family","genus","species"
 rm -f "$tmp"
+python3 workflow/scripts/compact_taxdump_ids.py {output.full_taxdump} {output.full_taxdump}/taxid.map
 """
 
 
