@@ -121,14 +121,25 @@ if (!is.null(gtdb_meta_path)) {
 annot <- bind_rows(per_source)  # mnemo -> completeness, data_type
 
 # ---- RepDBmaker decontamination flagging (optional) --------------------------
-# contaminant sequence IDs -> organism = the token before the first "_"
-# (same convention as make_db_map / get_mixed_clusters).
+# RepDB sequence ids are <taxid>_<mnemo>_<accession> (e.g. 73974_EP01105_AA06076),
+# so the organism is the SECOND field. get_mixed_clusters takes the first field
+# on purpose - it wants the taxid, not the mnemo - and the pair_counts rule takes
+# the second (`cut -f2,4 -d'_'`), which is the convention that applies here.
 contam_path <- opt_in("contaminants")
 if (!is.null(contam_path)) {
   ids <- readLines(contam_path)
   ids <- ids[nzchar(ids)]
-  contaminants <- tibble(mnemo = sub("_.*", "", ids)) %>%
+  contaminants <- tibble(mnemo = str_split_i(ids, "_", 2)) %>%
+    filter(!is.na(mnemo)) %>%
     count(mnemo, name = "n_contaminants")
+  # taking the wrong field yields taxids, which match no mnemo and silently
+  # report every organism as uncontaminated - fail loudly instead
+  if (nrow(contaminants) > 0 && !any(contaminants$mnemo %in% tax$mnemo)) {
+    stop(sprintf(
+      "none of the %d contaminant organism ids match a RepDB mnemo (first id: '%s') - check the sequence id format in %s",
+      nrow(contaminants), ids[1], contam_path
+    ))
+  }
 } else {
   contaminants <- tibble(mnemo = character(0), n_contaminants = integer(0))
 }

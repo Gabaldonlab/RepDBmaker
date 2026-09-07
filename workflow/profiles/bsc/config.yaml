@@ -30,8 +30,8 @@ rerun-triggers: [code,input,params,mtime]
 
 group-components:
   - cluster_db=6
-  - dmnd_bench=4
-  - mmseqs_bench=4
+#  - dmnd_bench=4
+#  - mmseqs_bench=4
 
 # Per-rule thread counts. These were previously set via the `cpus_per_task`
 # resource and consumed in the shell as {resources.cpus_per_task}; the rules now
@@ -45,8 +45,8 @@ set-threads:
   make_mmseqsdb: 112
   make_diamonddb: 112
   make_blastdb: 112
-  diamond_random_seqs: 28
-  mmseqstax_random_seqs: 112
+  diamond_random_seqs: 56
+  mmseqstax_random_seqs: 56
 
 set-resources:
   make_db_fasta:
@@ -62,4 +62,4 @@ set-resources:
   diamond_random_seqs:
     runtime: 600
   mmseqstax_random_seqs:
-    runtime: 360
+    runtime: 600
