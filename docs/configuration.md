@@ -9,11 +9,14 @@ snakemake --configfile path/to/custom.yaml
 Example configuration:
 
 ```yaml
-# Database configuration
+versions:
+  gtdb: "release226"          # use latest to use most recent version
+  unieuk: "0.0.1-pre_release"
+  EukProt: "3"
+  taxdump: "2026-07-01"       # use latest to use most recent version
+
 dbs:
-  gtdb_version: "release226"  # use latest to use most recent version
-  unieuk_version: "0.0.1-pre_release"
-  type: ["diamond", "mmseqs"]  # Available types: diamond, mmseqs, blastp
+  type: ["diamond", "mmseqs"]  # available: diamond, mmseqs, blastp
   build:
     repdb:
       decontaminate:
@@ -23,13 +26,12 @@ dbs:
         cov_mode: 3
         prop_euka: 0.5
         filter: soft          # 'hard' removes contaminants; 'soft' flags but keeps them
-    custom:
-      clusteredrepdb:
-        ids: resources/repdb.ids
-        cluster:
-          level: class
-          identity: 0.9
-          coverage: 0.9
+      cluster:
+        # ADDITIVE: this alone also builds repdb_clustered alongside repdb.
+        # See docs/clustering.md.
+        level: class
+        identity: 0.9
+        coverage: 0.9
 
 files:
   clades_to_keep: "resources/clades_tokeep.txt"
@@ -37,14 +39,16 @@ files:
   new_genomes: "resources/custom_genomes_repdb.csv"
 ```
 
-Using this config file will allow the creation of RepDB and its clustered version.
+`versions:` is a top-level key, a sibling of `dbs:`, not nested under it. Using
+this config builds RepDB and, because of the `cluster:` block, its clustered
+sibling `repdb_clustered` too (see [Clustering](clustering.md)).
 
 ## Eukaryote downsampling
 
 The public eukaryotic sources (UniProt, EukProt, P10K) are heavily redundant, so
 before RepDB is built they are thinned by `workflow/scripts/filter_tax.R`. The
 three steps are configurable under `dbs.build.repdb.downsample`. The whole block
-is optional — omit it, or any individual key, to use the defaults shown below.
+is optional: omit it, or any individual key, to use the defaults shown below.
 
 ```yaml
 dbs:
@@ -77,8 +81,8 @@ Notes:
   freely (e.g. `- {rank: phylum, taxon: Chordata, n: 10}`). Within each clade the
   cap is applied **per family**.
 - Genomes with no resolved family (an `unassigned_*` family from the taxonomy
-  harmonization, or a blank one) are **not** capped — you cannot know where they
-  belong taxonomically — so they are all kept.
+  harmonization, or a blank one) are **not** capped: there's no way to know where
+  they belong taxonomically, so they are all kept.
 - Genomes forced in via `clades_to_keep` and all custom (`CUS…`) proteomes bypass
   the downsampling and are always retained.
 - A `rank` outside `phylum/class/order/family`, or an entry missing `rank`,

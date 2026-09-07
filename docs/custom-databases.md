@@ -4,7 +4,7 @@ To add any custom database:
 
 1. Define an entry under `dbs.build.custom`
 2. Provide an `ids` file with genome identifiers or metadata
-3. Optionally configure `cluster` and `decontaminate`
+3. Optionally configure [`cluster`](clustering.md) and [`decontaminate`](decontamination.md)
 
 Example:
 
@@ -12,17 +12,18 @@ Example:
 dbs:
   type: ["diamond", "mmseqs", "blastp"]
   build:
-    smalleuks:
-      ids: resources/eukas_50.ids
-      cluster:
-        level: order
-        identity: 0.8
-        coverage: 0.8
-      decontaminate:
-        identity: 0.9
-        coverage: 0.5
-        cov_mode: 3
-        prop_euka: 0.5
+    custom:
+      smalleuks:
+        ids: resources/eukas_50.ids
+        cluster:
+          level: order
+          identity: 0.8
+          coverage: 0.8
+        decontaminate:
+          identity: 0.9
+          coverage: 0.5
+          cov_mode: 3
+          prop_euka: 0.5
 ```
 
 The workflow will create `results/dbs/<custom_db>/` and its associated outputs.
@@ -33,7 +34,7 @@ Beyond the public sources, you can inject your own proteomes through the
 tab-separated table pointed to by `files.new_genomes` (default
 `resources/custom_genomes_repdb.csv`). Each row is **one whole proteome from a
 single organism**. The pipeline relies on the following schema, and rows that
-violate it are silently dropped or mislabelled rather than rejected — so validate
+violate it are silently dropped or mislabelled rather than rejected, so validate
 the table first (see below).
 
 | Column      | Required | Description |
@@ -60,11 +61,11 @@ Notes on the implicit specification (made explicit here):
   organisms is accepted but all its sequences inherit the row's nominal lineage.
 - **Lineages must be internally consistent.** The same taxon name may not appear
   under two different parents across your custom rows (e.g. class `Provora` under
-  phylum `Diaphoretickes` in one row and `Metamonada` in another) — such
+  phylum `Diaphoretickes` in one row and `Metamonada` in another): such
   contradictions corrupt the taxdump and are rejected.
 - **Custom proteomes need not be eukaryotic.** Bacterial/archaeal or viral custom
   proteomes are accepted; each row is checked against the reference matching its
-  own domain — Eukaryota vs the harmonized eukaryotic taxonomy, Bacteria/Archaea
+  own domain, Eukaryota vs the harmonized eukaryotic taxonomy, Bacteria/Archaea
   vs GTDB, Viruses vs the RepDB virus taxonomy. The domain (`d__`) must be one of
   `Eukaryota`, `Bacteria`, `Archaea`, `Viruses`.
 - **Lineage is checked against the reference for its domain.** A lineage that
@@ -102,6 +103,6 @@ duplicate Fasta paths, a domain that is not a recognized superkingdom
 `s__` rank (mislabel / cross-organism row), internal contradictions (a taxon
 under conflicting parents across custom rows), and any lineage that conflicts
 with the reference taxonomy for its domain (a known taxon placed under a parent it
-does not have there). The **only warning** lists the *new coherent lineages* —
+does not have there). The **only warning** lists the *new coherent lineages*:
 custom entries that do not conflict but introduce taxa the reference does not
-know — so the novel taxonomy being added can be reviewed before it propagates.
+know, so the novel taxonomy being added can be reviewed before it propagates.

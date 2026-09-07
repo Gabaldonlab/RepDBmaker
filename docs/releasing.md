@@ -1,7 +1,7 @@
 # Building & releasing RepDB
 
-How to produce a new release: build the two databases — the **full
-decontaminated repdb** and the **clustered repdb** — from a single frozen
+How to produce a new release: build the two databases, the **full
+decontaminated repdb** and the **clustered repdb**, from a single frozen
 universe, and publish everything. Replace `v1` below with the new version.
 
 ## What a release contains
@@ -21,20 +21,21 @@ Three hosting tiers, split by what each artifact *is* rather than by size:
 | tier | artifacts | why |
 |---|---|---|
 | **git** (this repo) | `config.yaml`, `repdb.ids`, `release.yaml` | versioned code |
-| **GitHub release** | `universe.tsv`, `custom_bundle.tar.gz` | Pipeline 1 **inputs** - tied to unversioned dbs |
-| **Zenodo** | `repdb.fa.gz`, `repdb_clusters.tsv`, `repdb_contaminants.tsv`, `repdb_taxdump.tar.gz`, `repdb_meta.tsv`, stats tables | the data and results - DOI'd and citable |
+| **GitHub release** | `universe.tsv`, `custom_bundle.tar.gz` | Pipeline 1 **inputs**, tied to unversioned dbs |
+| **Zenodo** | `repdb.fa.gz`, `repdb_clusters.tsv`, `repdb_contaminants.tsv`, `repdb_taxdump.tar.gz`, `repdb_meta.tsv`, stats tables | the data and results, DOI'd and citable |
 
 ## Producing a release
 
 Replace `<N>` with the max number of parallel SLURM jobs.
 
-`clusterrepdb` (Pipeline 2's second database) is a clustered version of
-RepDB - the same `repdb.ids` selection, clustered per class - configured
-under `dbs.build.custom` in `config/repdb.yaml`. Put your curated custom
-proteomes in `resources/custom_proteomes/` (`CUS<id>.fa|.faa.gz`) before
-step 1: since `custom_bundle` there points at a rule output, `build`
-auto-packages the release custom bundle from that folder for you; unset
-`custom_bundle` to read the folder directly instead.
+`repdb_clustered` (Pipeline 2's second database) comes from the additive
+`cluster:` block already set under `dbs.build.repdb` in `config/repdb.yaml`
+(see [Clustering](clustering.md)): it isn't a separate database entry, just
+a side effect of that block being present. Put your curated custom proteomes
+in `resources/custom_proteomes/` (`CUS<id>.fa|.faa.gz`) before step 1. Since
+`custom_bundle` there points at a rule output, `build` auto-packages the
+release custom bundle from that folder for you; unset `custom_bundle` to
+read the folder directly instead.
 
 ```bash
 # 0. config/repdb.yaml: test mode off (test: false). A release is never
@@ -74,17 +75,17 @@ snakemake cleanup --configfile resources/releases/v1/config.yaml
 ## Updating pinned tool versions (conda pin files)
 
 `workflow/envs/<name>.linux-64.pin.txt` pin the exact package builds for each
-env - both what the Docker image is built from *and*, since these are
-Snakemake's own native pin files (not bespoke infrastructure - see
+env. They aren't just what the Docker image is built from: since these are
+Snakemake's own native pin files, not bespoke infrastructure (see
 [Freezing environments to exactly pinned
 packages](https://snakemake.readthedocs.io/en/stable/snakefiles/deployment.html#freezing-environments-to-exactly-pinned-packages)),
-what any `snakemake --sdm conda` run uses automatically, Docker or not:
+any `snakemake --sdm conda` run uses them automatically too, Docker or not.
 Snakemake prefers a pin file over its sibling `.yaml` whenever one is present,
 falling back to the `.yaml` only if creating from the pin fails.
 
 Regenerate one whenever its `workflow/envs/<name>.yaml` changes, from the real
-environment that's actually building the release (not a fresh solve elsewhere
-- the point is capturing what actually worked):
+environment that's actually building the release (not a fresh solve elsewhere:
+the point is capturing what actually worked):
 
 ```bash
 # find the env Snakemake solved for that rule (hash is deterministic - matches
@@ -127,7 +128,7 @@ docker inspect --format='{{index .RepoDigests 0}}' gmuttiirb/repdbmaker:v1.0
 
 No per-env hash to keep in sync by hand anymore: Snakemake computes and
 matches env addresses itself, both at build time (`--conda-create-envs-only`
-above) and at run time, from the same `--conda-prefix /conda-envs` - so as
+above) and at run time, from the same `--conda-prefix /conda-envs`, so as
 long as every `docker run` also passes `--conda-prefix /conda-envs`, the
 addresses always agree by construction. See the Dockerfile's top-of-file
 comment for the full mechanism, including the Apptainer/Singularity

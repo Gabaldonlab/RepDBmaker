@@ -15,13 +15,13 @@ decontaminate:
   filter: soft   # 'soft' (default) or 'hard'
 ```
 
-- **`filter: soft`** — flagged sequences are **kept** in the database.
-- **`filter: hard`** — flagged sequences are **removed** from the database
+- **`filter: soft`**: flagged sequences are **kept** in the database.
+- **`filter: hard`**: flagged sequences are **removed** from the database
   (the search indices are built from `<db>_decontaminated.fa.gz`).
 
 **In both modes** a data frame `results/dbs/<db>/decontaminate/contaminants.tsv`
 is written, listing every flagged protein with its cluster context: the flag
 path, cluster size (`n_clu`), number of eukaryotes (`n_euka`), species count
 (`n_species`), `euka_prop`, and the protein's taxonomy. This lets you audit what
-was flagged — e.g. whether removals hit HGT candidates or plastid-derived genes —
+was flagged (e.g. whether removals hit HGT candidates or plastid-derived genes)
 regardless of the filter mode.
