@@ -78,8 +78,8 @@ without needing conda or Snakemake installed locally. From the repository root:
 
 ```bash
 docker run --rm -t -v $(pwd):/app/data gmuttiirb/repdbmaker:v1.0 \
-  snakemake --configfile config/repdb.yaml --cores <N> --directory /app/data \
-  --sdm conda --conda-prefix /conda-envs
+  snakemake --configfile config/default.yaml config/repdb.yaml --cores <N> \
+  --directory /app/data --sdm conda --conda-prefix /conda-envs
 ```
 
 Both flags are required: `--sdm conda` turns on each rule's `conda:` env, and
@@ -88,14 +88,22 @@ pre-built environments instead of rebuilding them from scratch. Add `-n` to
 preview the plan without running anything; `-t` just gets you Snakemake's
 usual colored output.
 
+`--configfile` takes two files here, `config/default.yaml` explicitly:
+`--directory` changes the base Snakemake resolves relative paths against,
+which includes the Snakefile's own `configfile: "config/default.yaml"`
+directive. Passing only `config/repdb.yaml` after `--directory /app/data`
+makes Snakemake look for `config/default.yaml` inside `/app/data` (your
+mounted, otherwise-empty directory) instead of the image's own `/app`,
+silently failing to load it. Passing both explicitly sidesteps that.
+
 For reproducible pulls, use the image's immutable digest instead of the
 mutable `:v1.0` tag:
 
 ```bash
 docker run --rm -t -v $(pwd):/app/data \
   gmuttiirb/repdbmaker@sha256:1c0d3f397ac79ff48f712448156d1a60eb751290fb7becb446c12a11d3a791bc \
-  snakemake --configfile config/repdb.yaml --cores <N> --directory /app/data \
-  --sdm conda --conda-prefix /conda-envs
+  snakemake --configfile config/default.yaml config/repdb.yaml --cores <N> \
+  --directory /app/data --sdm conda --conda-prefix /conda-envs
 ```
 
 ## Quick start

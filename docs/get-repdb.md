@@ -59,9 +59,16 @@ reassembled). What actually happens when you run this:
 Only step 3 does any real computation. Steps 1 and 2 are what make this
 much faster than a full rebuild.
 
-Docker works the same way; see [Docker](../README.md#docker) for the flags
-it needs, and swap in `resources/releases/v1/config.yaml` as the
-`--configfile`.
+Docker works the same way; see [Docker](../README.md#docker) for why it
+needs two `--configfile` arguments (`--directory` and the Snakefile's own
+`configfile: "config/default.yaml"` directive don't mix well otherwise),
+swap in `resources/releases/v1/config.yaml` as the second one:
+
+```bash
+docker run --rm -t -v $(pwd):/app/data gmuttiirb/repdbmaker:v1.0 \
+  snakemake build --configfile config/default.yaml resources/releases/v1/config.yaml \
+  --directory /app/data --sdm conda --conda-prefix /conda-envs
+```
 
 ## Which one reproduces exactly what we published?
 
