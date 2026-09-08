@@ -13,14 +13,20 @@ databases from public resources and custom genome collections.
 
 ## Contents
 
-- [Overview](#overview)
-- [Installation](#installation)
-- [Docker](#docker)
-- [Quick start](#quick-start)
-- [Reproducibility](#reproducibility)
-- [Troubleshooting](#troubleshooting)
-- [Documentation](#documentation)
-- [Citation](#citation)
+- [RepDBmaker Pipeline](#repdbmaker-pipeline)
+  - [Contents](#contents)
+  - [Overview](#overview)
+  - [Installation](#installation)
+    - [Requirements](#requirements)
+  - [Docker](#docker)
+  - [Quick start](#quick-start)
+  - [Reproducibility](#reproducibility)
+    - [Pinned source snapshots](#pinned-source-snapshots)
+    - [Reproducing a release from a pinned universe](#reproducing-a-release-from-a-pinned-universe)
+  - [Troubleshooting](#troubleshooting)
+  - [Documentation](#documentation)
+  - [Citation](#citation)
+  - [License](#license)
 
 ## Overview
 
@@ -101,7 +107,7 @@ mutable `:v1.0` tag:
 
 ```bash
 docker run --rm -t -v $(pwd):/app/data \
-  gmuttiirb/repdbmaker@sha256:1c0d3f397ac79ff48f712448156d1a60eb751290fb7becb446c12a11d3a791bc \
+  gmuttiirb/repdbmaker@sha256:c3458c7c5dd8e1d1a7dcf7ea61d02b97f4807c309ade381c6a65a72c68fa628a \
   snakemake --configfile config/default.yaml config/repdb.yaml --cores <N> \
   --directory /app/data --sdm conda --conda-prefix /conda-envs
 ```
@@ -124,15 +130,21 @@ the same config file; pick the phase with the target:
 To just inspect the available proteomes first:
 
 ```bash
-snakemake -j 1 --until available_proteomes
+snakemake --configfile config/repdb.yaml -j 1 --until available_proteomes
 # -> results/meta/available_proteomes.tsv, for picking a proteome subset
 ```
 
 To build everything with the default config:
 
 ```bash
-snakemake -j 14
+snakemake --configfile config/repdb.yaml -j 14
 ```
+
+`--configfile config/repdb.yaml` is required even just for `available_proteomes`:
+the Snakefile reads `config["dbs"]["type"]` while building its rule graph,
+before it even knows which target you asked for, and `config/repdb.yaml` is
+what supplies `dbs:` on top of the Snakefile's own auto-loaded
+`config/default.yaml`.
 
 For more, see [Example commands](docs/examples.md): a fast smoke test on a
 tiny subset, building only a custom database, running on a scheduler,

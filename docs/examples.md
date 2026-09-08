@@ -14,7 +14,7 @@ per source, so a full `sample` + `build` run finishes in minutes instead of
 hours.
 
 ```bash
-snakemake --config test=true --sdm conda -j 4
+snakemake --configfile config/repdb.yaml --config test=true --sdm conda -j 4
 ```
 
 The large downloads (GTDB tarball, EukProt archive, virus zip) and the QC/Krona
@@ -23,7 +23,7 @@ reports still run on the full sources even in test mode.
 ## Inspect available proteomes before selecting anything
 
 ```bash
-snakemake -j 1 --until available_proteomes
+snakemake --configfile config/repdb.yaml -j 1 --until available_proteomes
 ```
 
 Useful for browsing what's available (counts by source/domain/completeness)
@@ -33,12 +33,12 @@ before deciding on a subset; see the explorer notebook in
 ## Build everything with the default config
 
 ```bash
-snakemake --sdm conda -j <N>
+snakemake --configfile config/repdb.yaml --sdm conda -j <N>
 ```
 
 Runs both phases (`sample` then `build`) against `config/repdb.yaml`. Use
-`snakemake sample --sdm conda -j <N>` alone to stop at the universe and
-review the selection first.
+`snakemake sample --configfile config/repdb.yaml --sdm conda -j <N>` alone
+to stop at the universe and review the selection first.
 
 ## Build with a different config file
 
@@ -64,7 +64,7 @@ See [Custom databases](custom-databases.md) for the config schema.
 ## Run on a scheduler instead of locally
 
 ```bash
-snakemake --workflow-profile workflow/profiles/slurm -j <N>
+snakemake --configfile config/repdb.yaml --workflow-profile workflow/profiles/slurm -j <N>
 ```
 
 `<N>` is the max number of jobs submitted in parallel, not cores per job (set
