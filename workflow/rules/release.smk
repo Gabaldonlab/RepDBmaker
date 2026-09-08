@@ -110,9 +110,15 @@ rule stage_zenodo_assets:
     for a Zenodo upload: symlink/copy the files into one directory, checksum
     them, and write SHA256SUMS.txt + a ready-to-paste zenodo_config.yaml.
 
-    Staged: repdb.fa.gz, repdb_clusters.tsv, repdb_contaminants.tsv,
+    Staged: repdb.fa.gz, repdb_clusters.tsv.gz, repdb_contaminants.tsv,
     repdb_taxdump.tar.gz, plus repdb_meta.tsv and the two
     stats tables
+
+    repdb_clusters.tsv itself isn't compressed at its source path, but it's
+    a highly repetitive 2-column TSV (each cluster's representative ID
+    repeated once per member) that gzips down enormously, so it's gzipped
+    during staging rather than symlinked as-is. fetch_repdb_clusters (in
+    zenodo_fetch.smk) decompresses it back on the way in.
     """
     input:
         fa="results/dbs/repdb/repdb.fa.gz",
@@ -127,6 +133,7 @@ rule stage_zenodo_assets:
         config_block="resources/releases/{version}/zenodo_stage/zenodo_config.yaml",
     localrule: True
     run:
+        import gzip
         import hashlib
         import os
         import shutil
@@ -154,10 +161,20 @@ rule stage_zenodo_assets:
                 shutil.copyfile(src, dest)
             return sha256(src)
 
+        def stage_gzip(dest_name, src):
+            """Gzip `src` into the stage dir, return the compressed file's
+            own sha256 (not src's - that's what a downloader actually gets)."""
+            dest = f"{stagedir}/{dest_name}"
+            if os.path.lexists(dest):
+                os.remove(dest)
+            with open(src, "rb") as fin, gzip.open(dest, "wb") as fout:
+                shutil.copyfileobj(fin, fout)
+            return sha256(dest)
+
         # key -> (Zenodo filename, source path) - what reproduce mode fetches
         fetched = {
             "fasta": ("repdb.fa.gz", input.fa),
-            "clusters": ("repdb_clusters.tsv", input.clusters),
+            "clusters": ("repdb_clusters.tsv.gz", input.clusters),
             "contaminants_tsv": ("repdb_contaminants.tsv", input.contaminants_tsv),
         }
         # key -> (Zenodo filename, source path) - staged for reference only
@@ -169,7 +186,10 @@ rule stage_zenodo_assets:
 
         checksums = {}
         for key, (name, src) in fetched.items():
-            checksums[key] = stage(name, src, symlink=True)
+            if key == "clusters":
+                checksums[key] = stage_gzip(name, src)
+            else:
+                checksums[key] = stage(name, src, symlink=True)
         for key, (name, src) in reference.items():
             checksums[key] = stage(name, src, symlink=False)
 

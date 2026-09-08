@@ -101,7 +101,12 @@ awk -F'\\t' 'NR>1{{print $1}}' {output.df} > {output.ids}
     ruleorder: derive_repdb_decontaminated_fasta > decontaminate_db
 
     rule fetch_repdb_clusters:
-        """Replaces merge_clustered's `clusters` output for repdb."""
+        """Replaces merge_clustered's `clusters` output for repdb. Hosted
+        gzipped: a plain 2-column TSV that repeats each cluster's
+        representative ID once per member compresses enormously (~10x on
+        RepDB v1.0), so it's fetched compressed, checksum-verified against
+        that compressed form, then decompressed to the plain TSV everything
+        downstream (derive_repdb_clustered_fasta) expects."""
         output:
             clusters="results/dbs/repdb/repdb_clusters.tsv",
         params:
@@ -113,7 +118,10 @@ awk -F'\\t' 'NR>1{{print $1}}' {output.df} > {output.ids}
         conda:
             "../envs/utils.yaml"
         shell:
-            "bash workflow/scripts/fetch_zenodo.sh {params.url} {params.sha} {output.clusters} >{log} 2>&1"
+            """
+bash workflow/scripts/fetch_zenodo.sh {params.url} {params.sha} {output.clusters}.gz >{log} 2>&1
+gunzip -f {output.clusters}.gz
+"""
 
     ruleorder: fetch_repdb_clusters > merge_clustered
 
