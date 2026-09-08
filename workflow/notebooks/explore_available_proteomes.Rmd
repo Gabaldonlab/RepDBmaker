@@ -8,8 +8,6 @@ output:
         self_contained: true
         toc_depth: 3
         highlight: kate
-params:
-    available: "results/meta/available_proteomes.tsv"
 ---
 
 ```{r setup, include=FALSE}
@@ -25,8 +23,9 @@ snakemake -j1 --until available_proteomes
 
 Use it to understand what is available before choosing a subset, and to write an
 `ids` file for a custom database. Adapt the filters to your question — the last
-section shows how to export a selection. Point `params$available` at your file
-(default `results/meta/available_proteomes.tsv`); knit from the repository root.
+section shows how to export a selection. Edit `available_path` below to point
+at your file; run chunks interactively or knit, both work, from the repository
+root either way.
 
 ```{r libs}
 suppressPackageStartupMessages(library(tidyverse))
@@ -37,6 +36,10 @@ source("workflow/scripts/functions.R")
 source("workflow/scripts/palettes.R")
 ```
 
+```{r path}
+available_path <- "results/meta/available_proteomes.tsv"
+```
+
 # Load and annotate
 
 The table has one row per proteome: `mnemo`, `Completeness`, `Data_type`, and the
@@ -44,7 +47,7 @@ seven taxonomic ranks `k, p, c, o, f, g, s` (domain → species). We add a
 `source` (from the mnemo prefix and domain) and a numeric completeness.
 
 ```{r load}
-prot <- read_tsv(rp(params$available), col_types = cols(.default = "c")) %>%
+prot <- read_tsv(rp(available_path), col_types = cols(.default = "c")) %>%
     mutate(
         Completeness = suppressWarnings(as.numeric(Completeness)),
         domain = na_if(k, ""),
