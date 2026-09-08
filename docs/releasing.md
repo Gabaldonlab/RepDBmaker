@@ -22,7 +22,7 @@ Three hosting tiers, split by what each artifact *is* rather than by size:
 |---|---|---|
 | **git** (this repo) | `config.yaml`, `repdb.ids`, `release.yaml` | versioned code |
 | **GitHub release** | `universe.tsv`, `custom_bundle.tar.gz` | Pipeline 1 **inputs**, tied to unversioned dbs |
-| **Zenodo** | `repdb.fa.gz`, `repdb_clusters.tsv`, `repdb_contaminants.tsv`, `repdb_taxdump.tar.gz`, `repdb_meta.tsv`, stats tables | the data and results, DOI'd and citable |
+| **Zenodo** | `repdb.fa.gz`, `repdb_clusters.tsv.gz`, `repdb_contaminants.tsv`, `repdb_taxdump.tar.gz`, `repdb_meta.tsv`, stats tables | the data and results, DOI'd and citable |
 
 ## Producing a release
 
@@ -63,15 +63,27 @@ snakemake build --configfile resources/releases/v1/config.yaml \
 #    reconstructs the DAG as a from-scratch curation run and doesn't trust the
 #    already-built outputs, wanting to redo taxonomy harmonization (and,
 #    worse, once genome_table.tsv/taxonomy.tsv look freshly regenerated,
-#    everything downstream of them too - including the 92GB repdb.fa.gz).
+#    everything downstream of them too - including the ~86GiB repdb.fa.gz).
+#    repdb_clusters.tsv is gzipped during staging (see stage_zenodo_assets):
+#    a highly repetitive 2-column TSV that isn't compressed at its source
+#    path but shrinks enormously once it is.
 snakemake resources/releases/v1/zenodo_stage/zenodo_config.yaml --configfile resources/releases/v1/config.yaml
-#    -> resources/releases/v1/zenodo_stage/{repdb.fa.gz, repdb_clusters.tsv,
+#    -> resources/releases/v1/zenodo_stage/{repdb.fa.gz, repdb_clusters.tsv.gz,
 #       repdb_contaminants.tsv, repdb_taxdump.tar.gz, repdb_meta.tsv,
 #       repdb_stats.tsv, repdb_clustered_stats.tsv, SHA256SUMS.txt, zenodo_config.yaml}
 
-# 5. UPLOAD every file in that directory to a new Zenodo deposit (web UI or
-#    the REST API - no official CLI), then merge zenodo_config.yaml's content
-#    (filling in <record_id>) into resources/releases/v1/config.yaml under
+# 5. UPLOAD every file in that directory to a new Zenodo deposit. The web UI
+#    struggles at this size (repdb.fa.gz alone is tens of GB); use the
+#    bucket API instead - get the deposit's `links.bucket` from its API
+#    response, then per file:
+#      curl --upload-file <file> -H "Authorization: Bearer $ZENODO_TOKEN" \
+#        "<bucket-url>/<file>"
+#    Also check the draft's "Manage storage" button (Files section) before
+#    uploading - the default quota is 50GB per record, and this release
+#    needs more; each account has up to 150GB of extra allowance to assign
+#    per record without filing a support ticket.
+#    Once uploaded, merge zenodo_config.yaml's content (filling in
+#    <record_id>) into resources/releases/v1/config.yaml under
 #    dbs.build.repdb, and commit that update
 
 # 6. (optional) reclaim disk once both DBs + their indices exist.

@@ -15,7 +15,7 @@ The record contains:
 | File | What it is |
 |---|---|
 | `repdb.fa.gz` | the protein FASTA |
-| `repdb_clusters.tsv` | cluster membership (identity + coverage in `docs/clustering.md`) |
+| `repdb_clusters.tsv.gz` | cluster membership, gzipped (identity + coverage in `docs/clustering.md`) |
 | `repdb_contaminants.tsv` | the decontamination report (see `docs/decontamination.md`) |
 | `repdb_taxdump.tar.gz` | an NCBI-style taxdump for the sequences in `repdb.fa.gz` |
 | `repdb_meta.tsv` | per-organism provenance metadata (see `docs/outputs-and-qc.md`) |
