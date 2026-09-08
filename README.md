@@ -175,6 +175,13 @@ that release, produced alongside its pinned `universe.tsv` when the release
 was made. See [docs/releasing.md](docs/releasing.md) for how a release like
 this gets produced, and where to download or publish its assets.
 
+That same command also pins the exact sequences: `resources/releases/v1/config.yaml`
+points at the RepDB v1.0 Zenodo deposit too, so the fasta, cluster table,
+decontamination report and taxdump are fetched and checksum-verified instead
+of reassembled. That's artifact-level reproduction, not just composition-level.
+See [Getting RepDB v1.0](docs/get-repdb.md) if that (or just downloading the
+data directly, no pipeline needed) is all you're after.
+
 ## Troubleshooting
 
 Sometimes things can go wrong while downloading a proteome: rule `db_stats`
@@ -194,6 +201,7 @@ most suitable alternative.
 
 Everything beyond this README lives under [`docs/`](docs/):
 
+- [Getting RepDB v1.0](docs/get-repdb.md): download the published data directly, or fetch + build indices with the pipeline
 - [Example commands](docs/examples.md): a cookbook covering common tasks, from a fast smoke test to reproducing a release
 - [Choosing an executor](docs/executors.md): local, SLURM, LSF, site profiles
 - [Configuration](docs/configuration.md): full config reference plus eukaryote downsampling

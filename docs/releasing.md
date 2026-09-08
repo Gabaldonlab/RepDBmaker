@@ -56,8 +56,15 @@ snakemake resources/releases/v1/release.yaml --configfile config/repdb.yaml
 snakemake build --configfile resources/releases/v1/config.yaml \
   --workflow-profile workflow/profiles/bsc -j <N>
 
-# 4. STAGE the Zenodo assets
-snakemake resources/releases/v1/zenodo_stage/zenodo_config.yaml --configfile config/repdb.yaml
+# 4. STAGE the Zenodo assets - use the PINNED config (same one step 3 built
+#    with), not config/repdb.yaml: staging just requests plain paths like
+#    results/dbs/repdb/repdb.fa.gz, so Snakemake computes freshness against
+#    whatever config you hand it right now. Handed the unpinned config, it
+#    reconstructs the DAG as a from-scratch curation run and doesn't trust the
+#    already-built outputs, wanting to redo taxonomy harmonization (and,
+#    worse, once genome_table.tsv/taxonomy.tsv look freshly regenerated,
+#    everything downstream of them too - including the 92GB repdb.fa.gz).
+snakemake resources/releases/v1/zenodo_stage/zenodo_config.yaml --configfile resources/releases/v1/config.yaml
 #    -> resources/releases/v1/zenodo_stage/{repdb.fa.gz, repdb_clusters.tsv,
 #       repdb_contaminants.tsv, repdb_taxdump.tar.gz, repdb_meta.tsv,
 #       repdb_stats.tsv, repdb_clustered_stats.tsv, SHA256SUMS.txt, zenodo_config.yaml}

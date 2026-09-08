@@ -1,5 +1,5 @@
 # Release custom proteomes as a versioned bundle (the former standalone
-# `new_genomes` pipeline, folded in here). See docs/split-pipeline.md.
+# `new_genomes` pipeline, folded in here).
 #
 # Two decoupled halves:
 #   CURATION (author only) -- run `snakemake package_custom` to build the bundle

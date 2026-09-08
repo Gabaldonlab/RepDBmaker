@@ -1,4 +1,4 @@
-# The UNIVERSE seam between the two pipelines (see docs/split-pipeline.md).
+# The UNIVERSE seam between the two pipelines.
 #
 # Pipeline 1 (sampling/curation) produces:
 #   results/universe/universe.tsv  - id, ranks, completeness, source, data_type

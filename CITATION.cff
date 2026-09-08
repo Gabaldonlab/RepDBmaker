@@ -10,4 +10,5 @@ license: MIT
 authors:
   - family-names: Mutti
     given-names: Giacomo
-  # TODO: add remaining authors
+  - family-names: Gabaldón
+    given-names: Toni

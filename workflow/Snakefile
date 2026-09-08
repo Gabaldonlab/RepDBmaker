@@ -105,8 +105,8 @@ def get_decontaminated_database_targets():
 
 
 # ---------------------------------------------------------------------------
-# The workflow is two pipelines joined at the universe seam (see
-# docs/split-pipeline.md). Run them independently or together:
+# The workflow is two pipelines joined at the universe seam. Run them
+# independently or together:
 #   snakemake sample   # Pipeline 1 (curation): the universe + selection + QC
 #   snakemake build    # Pipeline 2 (construction): the databases
 #   snakemake          # both (default target `all`)
