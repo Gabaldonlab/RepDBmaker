@@ -21,3 +21,10 @@ Dockerfile
 resources/releases/*/universe.tsv
 resources/releases/*/*.tar.gz
 resources/releases/*/*.tsv.gz
+resources/releases/*/custom_bundle.tar.gz
+
+# zenodo_stage/ is a regenerable staging directory (stage_zenodo_assets) full
+# of symlinks/copies of the same heavy data, plus one authored file worth
+# keeping in git.
+resources/releases/*/zenodo_stage/*
+!resources/releases/*/zenodo_stage/README.md

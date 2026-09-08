@@ -32,3 +32,10 @@ dbs:
         coverage: 0.9
         keep_full: true
       universe: resources/releases/v1/universe.tsv
+      zenodo:
+        base_url: "https://zenodo.org/records/22655812/files"
+        files:
+          fasta: {name: repdb.fa.gz, sha256: "8b46cd036cc8b5b2f512e22f8d917570ced5752e9230d7736c543df483325c01"}
+          clusters: {name: repdb_clusters.tsv.gz, sha256: "9bfa7dd03d652fd26a7ddd3d6c3aa3672c08dbbed943971ebcfdb8d4fc579335"}
+          contaminants_tsv: {name: repdb_contaminants.tsv, sha256: "ddf59f8ce0094125965e2254ef3eeb6a5ba634f391b4f4d6ffdbddaa2e2aa4f1"}
+          taxdump: {name: repdb_taxdump.tar.gz, sha256: "8cc5ffd9f5f73d19e9acb3271a0e01c7cfcbb7fdf6b93dad66dee476a09982b1"}

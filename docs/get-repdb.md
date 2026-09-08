@@ -1,6 +1,6 @@
 # Getting RepDB v1.0
 
-RepDB v1.0 is deposited on Zenodo under DOI: `<DOI>`. You don't need to
+RepDB v1.0 is deposited on Zenodo under DOI: `10.5281/zenodo.22655812`. You don't need to
 rebuild it from scratch to use it: pick whichever of the two options below
 matches what you actually need.
 
