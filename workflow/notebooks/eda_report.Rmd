@@ -11,11 +11,6 @@ output:
         gallery: true
         toc_depth: 3
         highlight: kate
-params:
-    bundle: "results/qc/eda_bundle.RData"
-    figdir: "results/plots"
-    comparison_rds: "results/plots/comparison.Rds"
-    recall_rds: "results/plots/recall.RDS"
 ---
 
 <!--
@@ -34,7 +29,7 @@ Bind the root to a variable first: render() does setwd(dirname(input)) before it
 forces `output_file`, so a lazily evaluated getwd() there resolves against
 workflow/notebooks/ instead of the repo root.
 
-If the bundle lives elsewhere, pass params = list(bundle = "~/eda_bundle.RData").
+If the bundle lives elsewhere, edit `P$bundle` in the `config` chunk below.
 
 Sections whose inputs were missing on the HPC, or whose plotting packages are
 missing here, are skipped with a note instead of aborting.
@@ -72,17 +67,26 @@ if (HAVE_TREE_PKGS) suppressPackageStartupMessages({
 if (HAVE_TREEMAP) suppressPackageStartupMessages(library(WeightedTreemaps))
 ```
 
+```{r config}
+P <- list(
+  bundle         = "results/qc/eda_bundle.RData",
+  figdir         = "results/plots",
+  comparison_rds = "results/plots/comparison.Rds",
+  recall_rds     = "results/plots/recall.RDS"
+)
+```
+
 ```{r load-bundle}
 .rp <- function(p) if (!file.exists(p) && file.exists(file.path("..", "..", p))) file.path("..", "..", p) else p
-bundle_path <- .rp(params$bundle)
+bundle_path <- .rp(P$bundle)
 if (!file.exists(bundle_path)) {
   stop("bundle not found: ", bundle_path,
        "\nRun workflow/notebooks/eda_prepare.Rmd on the HPC and copy the .RData here,",
-       "\nor pass params = list(bundle = \"/path/to/eda_bundle.RData\").")
+       "\nor edit P$bundle in the config chunk above.")
 }
 load(bundle_path)
 
-figdir <- .rp(params$figdir)
+figdir <- .rp(P$figdir)
 dir.create(figdir, showWarnings = FALSE, recursive = TRUE)
 fig <- function(name) file.path(figdir, name)
 
@@ -789,8 +793,7 @@ case_tbl <- cooc_case %>%
   ungroup() %>%
   arrange(Proteome, desc(`Flagged proteins`))
 
-show_tbl(case_tbl,
-  "Top putative donor clades for the two proteomes discussed in the text. `Flagged proteins` counts distinct flagged proteins of that proteome whose cluster contains the clade - the quantity the manuscript quotes. `Donor genomes` is how many genomes of the clade are in those clusters, shown alongside because ranking on it instead would measure GTDB's representation of the genus rather than the contamination.")
+show_tbl(case_tbl)
 ```
 
 ```{r n-case-text, echo=FALSE, results="asis"}
@@ -962,14 +965,6 @@ show_tbl(ecoli_tbl,
   "The *E. coli* problem in nr: sequences assigned to any taxid under *Escherichia coli* (562).")
 ```
 
-```{r n-ecoli-text, eval=HAVE_ECOLI, echo=FALSE, results="asis"}
-cat(sprintf(
-  "nr contains more than **%s** sequences from *Escherichia coli* strains (%s of the whole database); clustering removes %s of them, leaving %s.\n",
-  fmt_m(N$ecoli_nr, 1), fmt_p(N$ecoli_nr_prop, 2),
-  fmt_p(N$ecoli_reduction), fmt_n(N$ecoli_clustnr)
-))
-```
-
 ## Taxonomic evenness (Fig. 4B)
 
 ```{r n-gini, eval=HAVE_NR}
@@ -1034,15 +1029,6 @@ show_tbl(
 )
 ```
 
-```{r n-reduction-text, eval=HAVE_NR, echo=FALSE, results="asis"}
-cat(sprintf(
-  "In ClusteredNR, **%s** of the removed proteins belong to just four classes: %s. The top four in ClusteredRepDB account for **%s** (%s), with Bacilli ranking %s and Bacteroidia %s. Clustering removes %s of nr against %s of RepDB, so what differs between the two is the magnitude of the redundancy rather than where it sits.\n",
-  fmt_p(N$nr_top4_share), N$nr_top4_classes,
-  fmt_p(N$repdb_top4_share), N$repdb_top4_classes,
-  N$rank_bacilli_repdb, N$rank_bacteroidia_repdb,
-  fmt_p(N$nr_clust_reduction), fmt_p(N$repdb_clust_reduction)
-))
-```
 
 ```{r n-reduction-repdb-rel, eval=HAVE_NR}
 show_tbl(
@@ -1148,84 +1134,18 @@ show_tbl(head(viral_cooc, 20), "Viral classes co-occurring with non-viral clades
 show_tbl(head(viral_cooc_megavir, 20), "Megaviricetes co-occurring with Diaphoretickes (top 20).")
 ```
 
-# Manuscript number checklist
-
-Every value the Results section quotes, recomputed from this run. The
-*Manuscript* column is the figure as written in the current draft
-(`test/review/Repdb_1strev.md`) - it is a static reminder, not a computed value,
-so a mismatch means the sentence needs updating.
-
-```{r checklist, echo=FALSE}
-g <- function(key, fmt = fmt_n, ...) {
-  v <- N[[key]]
-  if (is.null(v) || length(v) != 1L) return("not computed")
-  if (is.character(v)) return(v)
-  if (!is.finite(v)) return("not computed")
-  fmt(v, ...)
-}
-
-checklist <- tribble(
-  ~Claim, ~Manuscript, ~`This run`,
-  "Total sequences",                        "482M",        g("n_seqs", fmt_m, 0),
-  "Bacteria: sequences / proteomes",        "424M / 136,646", paste(g("n_seqs_Bacteria", fmt_m, 0), "/", g("n_prot_Bacteria")),
-  "Eukaryota: sequences / proteomes",       "44.5M / 1,561",  paste(g("n_seqs_Eukaryota", fmt_m, 1), "/", g("n_prot_Eukaryota")),
-  "Archaea: sequences / proteomes",         "13M / 6,968",    paste(g("n_seqs_Archaea", fmt_m, 0), "/", g("n_prot_Archaea")),
-  "Viruses: sequences / proteomes",         "0.7M / 14,870",  paste(g("n_seqs_Viruses", fmt_m, 1), "/", g("n_prot_Viruses")),
-  "Three most abundant clades",             "Pseudomonadota, Actinomycetota, Bacillota", g("top_clades"),
-  "Bacteria completeness (mean±SD)",        "91.7±9.8%",   g("compl_Bacteria"),
-  "Bacteria contamination (mean±SD)",       "1.4±1.6%",    g("cont_Bacteria"),
-  "Archaea completeness (mean±SD)",         "87.3±10.9%",  g("compl_Archaea"),
-  "Archaea contamination (mean±SD)",        "1.3±1.6%",    g("cont_Archaea"),
-  "Eukaryota completeness (mean±SD)",       "66.5±27.9%",  g("compl_Eukaryota"),
-  "Eukaryota contamination (mean±SD)",      "0.7±3.4%",    g("cont_Eukaryota"),
-  "Prokaryotes at contig level",            "66.8%",       g("proka_top_prop", fmt_p),
-  "Eukaryotic proteins from transcriptomes", "60.3%",      g("transcr_seq_prop", fmt_p),
-  "Caudoviricetes share of viral proteins", "80.5%",       g("caudo_seq_prop", fmt_p),
-  "Caudoviricetes species",                 "5,019",       g("caudo_species"),
-  "Megaviricetes share of viral proteins",  "5.7%",        g("mega_seq_prop", fmt_p),
-  "Megaviricetes species",                  "89",          g("mega_species"),
-  "Eukaryotic proteomes evaluated",         "1,561",       g("n_euk_prot"),
-  "EukProt contaminant fraction",           "1.46%",       g("cont_prop_eukprot", fmt_p, 2),
-  "P10K contaminant fraction",              "0.30%",       g("cont_prop_p10k", fmt_p, 2),
-  "UniProt contaminant fraction",           "0.13%",       g("cont_prop_uniprot", fmt_p, 2),
-  "Most affected taxon (median cont.)",     "Anaeramoebidae, 2.93%", paste0(g("worst_class"), ", ", g("worst_class_med", fmt_p, 2)),
-  "Transcriptome mean contamination",       "0.87%",       g("cont_transcriptome", fmt_p, 2),
-  "Genome mean contamination",              "0.62%",       g("cont_genome", fmt_p, 2),
-  "S.C. transcriptome mean contamination",  "0.33%",       g("cont_sc_transcriptome", fmt_p, 2),
-  "S.C. genome mean contamination",         "1.31%",       g("cont_sc_genome", fmt_p, 2),
-  "Proteomes >20% contamination",           "11",          g("n_above20"),
-  "...of which genome-derived",             "8",           g("n_above20_genome"),
-  "Proteomes >=5% contamination (Fig. 3D)", "60",          g("n_interesting"),
-  "Top contaminant source genera",          "Pseudomonas_E, Vibrio, Marinobacter", g("top_cooc_genera"),
-  "RepDB vs nr size",                       "0.48B vs 1.69B", paste(g("n_seqs", fmt_b), "vs", g("n_nr", fmt_b)),
-  "E. coli sequences in nr",                "52.2M",       g("ecoli_nr", fmt_m, 1),
-  "nr reduced by clustering",               "72.2%",       g("nr_clust_reduction", fmt_p),
-  "RepDB reduced by clustering",            "23.8%",       g("repdb_clust_reduction", fmt_p),
-  "ClusteredNR: share removed by top 4 classes", "61.8%",  g("nr_top4_share", fmt_p),
-  "ClusteredNR: those four classes",        "Gammaproteobacteria, Actinomycetes, Bacilli, Alphaproteobacteria", g("nr_top4_classes"),
-  "ClusteredRepDB: share removed by top 4 classes", "58.3%", g("repdb_top4_share", fmt_p),
-  "ClusteredRepDB: those four classes",     "Gammaproteobacteria, Actinomycetes, Alphaproteobacteria, Bacteroidia", g("repdb_top4_classes"),
-  "ClusteredRepDB: rank of Bacilli",        "6th",         g("rank_bacilli_repdb"),
-  "Largest relative reductions in RepDB",   "Coriobacteriia, Parabasalia, Caudoviricetes", g("repdb_top_prop_classes"),
-  "RepDB gzipped FASTA size",               "86GB",        g("size_fasta", fmt_gb)
-)
-
-show_tbl(checklist, "Draft claims vs. this run. `not computed` means the section producing it was skipped (missing input).")
-```
-
-The Fig. 5 numbers come from `comparison.Rmd`, not from this notebook.
 
 # Figures written to disk
 
 ```{r comparison-panel}
 have_rds <- function(p) !is.null(p) && nzchar(p) && file.exists(.rp(p))
-if (have_rds(params$comparison_rds)) {
-  plot_cohen <- readRDS(.rp(params$comparison_rds)) + plot_annotation(tag_levels = "A")
+if (have_rds(P$comparison_rds)) {
+  plot_cohen <- readRDS(.rp(P$comparison_rds)) + plot_annotation(tag_levels = "A")
 } else {
   message("comparison.Rds not found; run comparison.Rmd first to include Fig. 5")
 }
-if (have_rds(params$recall_rds)) {
-  recall_plot <- readRDS(.rp(params$recall_rds))
+if (have_rds(P$recall_rds)) {
+  recall_plot <- readRDS(.rp(P$recall_rds))
 } else {
   message("recall.RDS not found; Fig. S1 will not be written")
 }
@@ -1246,8 +1166,8 @@ show_tbl(
     save_if("Fig2.pdf", "p4", width = 11, height = 11),
     save_if("Fig3.pdf", "plot_cont", width = 9, height = 6),
     save_if("Fig4.pdf", "plot_red", height = 3, width = 9),
-    save_if("Fig5.pdf", "plot_cohen", width = 6.5, height = 4.5),
-    save_if("FigS1.pdf", "recall_plot", width = 4, height = 4),
+    # save_if("Fig5.pdf", "plot_cohen", width = 6.5, height = 4.5),
+    # save_if("FigS1.pdf", "recall_plot", width = 4, height = 4),
     save_if("FigS2.pdf", "pvir2", width = 4.3, height = 4.5)
   ),
   sprintf("Figures written to `%s`.", figdir)

@@ -11,13 +11,6 @@ output:
         gallery: true
         toc_depth: 3
         highlight: kate
-params:
-    results: "results"
-    resources: "resources"
-    figdir: "results/plots"
-    reference: "resources/merged.fasta.transdecoder_reduced.tsv"
-    reference_name: "Cohen2024"
-    reference_long: "Cohen et al. (2024)"
 ---
 
 <!--
@@ -56,8 +49,18 @@ theme_set(theme_classic(base_size = 9))
 .src("workflow/scripts/palettes.R")
 ```
 
+```{r config}
+P <- list(
+  results   = "results",
+  resources = "resources",
+  figdir    = "results/plots",
+  reference      = "resources/Cohen_2024/merged.fasta.transdecoder_reduced.tsv",
+  reference_name = "Cohen2024",
+  reference_long = "Cohen et al. (2024)"
+)
+```
+
 ```{r paths}
-P <- as.list(params)
 res <- function(...) rp(file.path(P$results, ...))
 rsc <- function(...) rp(file.path(P$resources, ...))
 have <- function(p) !is.null(p) && length(p) == 1L && nzchar(p) && file.exists(rp(p))
@@ -69,46 +72,23 @@ fig <- function(name) file.path(figdir, name)
 REF <- P$reference_name       # short, for axes and legends
 REF_LONG <- P$reference_long  # full, for prose
 
-# The reference series is not one of the four benchmarked databases, so it gets
-# its own hue. The previous brown (#8C510A) collapsed against repdb green under
-# protanopia (dE 5.4, below the 8 floor); this rose clears every pair at
-# dE>=10.1 simulated and dE>=20.6 unsimulated. Re-check with
-# `Rscript workflow/scripts/check_palettes.R` if you change it.
 color_ref <- c("#CD5D8E")
 names(color_ref) <- REF
 db_colors <- c(color_benchdbs, color_ref)
 DB_LEVELS <- names(db_colors)
 
-# One identical colour scale on every panel. patchwork only merges guides whose
-# scale AND key glyph match, so the levels are fixed with drop = FALSE and every
-# geom draws a point key - otherwise panels A, B and D each emit their own
-# near-identical legend.
 scale_db <- function() {
-  # patchwork keeps the direction a guide was built with and ignores
-  # legend.direction in the assembly theme, so the orientation is set here
   scale_color_manual(values = db_colors, limits = DB_LEVELS, drop = FALSE,
                      na.translate = FALSE,
                      guide = guide_legend(direction = "vertical"))
 }
 
-# Panel C: green agrees, orange disagrees, and the two "no answer" outcomes are
-# neutral greys (light = homolog but no LCA, dark = no homolog). Defined in
-# palettes.R and verified by check_palettes.R - all six pairs clear dE 8 under
-# protanopia and deuteranopia and dE 15 unsimulated.
 OUTCOMES <- c(sprintf("Agrees with %s", REF), "Assigned, differs",
               "Homolog, no LCA", "No homolog")
 outcome_colors <- setNames(outcome_colors_ref, OUTCOMES)
 
 N <- list()
 
-# panels carry their own theme rather than relying on theme_set(): the assembled
-# object is written to an .Rds that eda_report.Rmd re-reads, and a ggplot resolves
-# the global theme at draw time, so a saved plot would otherwise pick up
-# whatever theme happens to be active in the reading session.
-# base_size 8 at 7.5x5in put the tick labels near 6pt once the PDF was placed
-# in a two-column layout, which is below what most journals accept. The figure
-# is now sized to a full text width (7.2in) and given the height the 2x2 grid
-# actually wants, so the same panels carry 10pt type.
 thm <- theme_classic(base_size = 10) +
   theme(
     strip.background = element_blank(),
@@ -245,17 +225,6 @@ N$n_ref_total <- nrow(ref)
 N$n_ref_unclassified <- sum(is.na(ref$ref_taxon) | ref$ref_taxon == "unclassified")
 N$n_ref_ambiguous <- sum(ref$ambiguous == 1, na.rm = TRUE)
 ```
-
-The query set is **`r fmt_n(N$n_queries)` predicted proteins** randomly sampled
-from the western North Atlantic metatranscriptome of `r REF_LONG`.
-
-Throughout, the comparator labelled **`r REF`** is *the taxonomic annotation
-published by that study*, not a database we queried. It is often referred to as
-"PhyloDB", but the annotation was produced with a PhyloDB-derived reference set
-augmented with additional references and RefSeq, and its own LCA procedure and
-thresholds. It is therefore a different *pipeline over a different reference*,
-which is exactly why the raw unclassified counts are not comparable and why the
-resolution profile below is the informative comparison.
 
 # Fig. 5
 
@@ -681,7 +650,7 @@ plot_comp <- wrap_plots(
   )
 
 saveRDS(plot_comp, fig("comparison.Rds"))
-ggsave(fig("Fig5.pdf"), plot_comp, width = 7.5, height = 6.19)
+ggsave(fig("Fig5.pdf"), plot_comp, width = 8, height = 6)
 plot_comp
 ```
 
@@ -803,247 +772,7 @@ Where both commit to a domain they agree
 `r if ("repdb" %in% LCA_DBS) fmt_p(N$domain_agreement) else "-"` of the time, so
 the extra transcripts RepDB resolves are not being bought with wrong calls.
 
-## 4. Eukaryotic composition below domain level
-
-Domain is a blunt comparison, and for a marine metatranscriptome the interesting
-question is whether RepDB recovers the same *community*. Going deeper is possible,
-but not by comparing taxon strings directly: UniEuk and the reference disagree on
-names far more often than they disagree on biology.
-
-```{r n-vocab-gap}
-euk_lineage_names <- function(x) {
-  unique(unlist(str_split(x[str_detect(replace_na(x, ""), "Eukaryota")], ";\\s*")))
-}
-ref_vocab <- euk_lineage_names(ref$ref_lineage)
-
-vocab_demo <- tibble(
-  `Reference name` = c("Bacillariophyta", "Dinophyta", "Karlodinium micrum",
-                       "Hacrobia", "Archaeplastida", "Prymnesiales",
-                       "Dinophyceae_X", "Prymnesiophyceae"),
-  Meaning = c("diatoms", "dinoflagellates", "a dinoflagellate species",
-              "Haptophyta + Cryptophyta", "plants + red/green algae",
-              "a haptophyte order", "placeholder: unassigned within Dinophyceae",
-              "haptophytes")
-)
-```
-
-```{r n-vocab-gap-tbl, eval=("repdb" %in% LCA_DBS)}
-db_vocab <- reports %>% filter(db == "repdb") %>% pull(nm) %>% str_trim() %>% unique()
-
-show_tbl(
-  vocab_demo %>%
-    mutate(`Present in RepDB (UniEuk)?` = if_else(`Reference name` %in% db_vocab, "yes", "NO"),
-           `UniEuk equivalent` = c("Diatomeae", "Dinoflagellata", "Karlodinium veneficum",
-                                   "(not used; split)", "(not used; split)", "(not used)",
-                                   "(not a taxon)", "Prymnesiophyceae")),
-  "Why a raw string comparison fails below domain: synonyms, defunct groupings, junior synonyms and PR2-style placeholders. Half of these name the same biology under a different label."
-)
-```
-
-The consequence is that a per-transcript string concordance below domain would
-mostly measure nomenclature. What *is* meaningful is to map both vocabularies onto
-an explicit panel of marine eukaryotic groups, with the synonyms declared, and
-compare composition.
-
-```{r euk-groups}
-# Each group lists the names that denote it in EITHER vocabulary. Within a
-# lineage the first matching group wins, so entries run fine -> coarse; the
-# "other X" entries therefore catch assignments that stop at the parent.
-EUK_GROUPS <- list(
-  "Dinophyceae"          = c("Dinophyceae", "Dinophyta", "Dinoflagellata"),
-  "Ciliophora"           = c("Ciliophora"),
-  "Apicomplexa+rel."     = c("Apicomplexa", "Perkinsea", "Chromerida"),
-  "Haptophyta"           = c("Haptophyta", "Prymnesiophyceae", "Pavlovophyceae"),
-  "Cryptophyta"          = c("Cryptophyta", "Cryptophyceae", "Cryptomonadales"),
-  "Bacillariophyta"      = c("Bacillariophyta", "Bacillariophyceae", "Mediophyceae",
-                             "Coscinodiscophyceae", "Diatomeae"),
-  "Pelagophyceae"        = c("Pelagophyceae"),
-  "Dictyochophyceae"     = c("Dictyochophyceae"),
-  "other Stramenopiles"  = c("Stramenopiles", "Ochrophyta", "Oomycota", "Bicosoecida",
-                             "Labyrinthulomycetes"),
-  "Chlorophyta"          = c("Chlorophyta", "Mamiellophyceae", "Chlorophyceae",
-                             "Trebouxiophyceae", "Chlorodendrophyceae", "Prasinodermophyta"),
-  "other Archaeplastida" = c("Streptophyta", "Rhodophyta", "Glaucocystophyta",
-                             "Glaucophyta", "Archaeplastida"),
-  "Rhizaria"             = c("Rhizaria", "Cercozoa", "Foraminifera", "Radiolaria", "Retaria"),
-  "Opisthokonta"         = c("Opisthokonta", "Metazoa", "Fungi", "Choanoflagellida",
-                             "Choanoflagellatea", "Choanoflagellata", "Ascomycota",
-                             "Basidiomycota", "Chytridiomycota", "Arthropoda", "Cnidaria"),
-  "Amoebozoa"            = c("Amoebozoa", "Lobosa", "Conosa", "Arcellinida"),
-  "Discoba/Excavata"     = c("Discoba", "Euglenozoa", "Excavata", "Heterolobosea", "Metamonada"),
-  "other Alveolata"      = c("Alveolata")
-)
-# nesting among the panel entries, so a coarse call is not scored as a conflict
-EUK_PARENT <- c(
-  "Dinophyceae" = "other Alveolata", "Ciliophora" = "other Alveolata",
-  "Apicomplexa+rel." = "other Alveolata",
-  "Bacillariophyta" = "other Stramenopiles", "Pelagophyceae" = "other Stramenopiles",
-  "Dictyochophyceae" = "other Stramenopiles",
-  "Chlorophyta" = "other Archaeplastida"
-)
-UNRES <- "Eukaryota, unresolved"
-
-assign_euk_group <- function(lineages) {
-  parts <- str_split(lineages, ";\\s*")
-  map_chr(parts, function(p) {
-    for (g in names(EUK_GROUPS)) if (any(EUK_GROUPS[[g]] %in% p)) return(g)
-    UNRES
-  })
-}
-```
-
-```{r n-group-audit, eval=("repdb" %in% LCA_DBS)}
-# A synonym that exists in neither vocabulary is dead weight; one that exists
-# only in the reference makes the group look absent from RepDB. Both are silent
-# failures, so the mapping is audited rather than trusted.
-vocab_of <- function(d) reports %>% filter(db == d) %>% pull(nm) %>% str_trim() %>% unique()
-db_vocabs <- set_names(map(REPORT_DBS, vocab_of), REPORT_DBS)
-
-audit <- imap_dfr(EUK_GROUPS, function(syn, g) {
-  tibble(Group = g, Synonyms = length(syn),
-         `In reference` = sum(syn %in% ref_vocab)) %>%
-    bind_cols(as_tibble(map(db_vocabs, ~ sum(syn %in% .x))))
-}) %>%
-  mutate(Status = case_when(
-    `In reference` == 0 ~ "absent from reference",
-    if_any(all_of(REPORT_DBS), ~ .x == 0) ~ "MISSING IN >=1 DB - would read as empty",
-    TRUE ~ "ok"
-  ))
-
-show_tbl(audit, "Mapping audit: how many of each group's declared synonyms exist in each vocabulary. A group matching nothing in a database silently reads as biologically absent - this is what happened to diatoms before `Diatomeae` was added. It also exposes an asymmetry that matters for the table below: the reference's vocabulary is NCBI/PR2-derived, so nr's names match it more readily than RepDB's UniEuk names do.")
-```
-
-```{r n-euk-composition, eval=("repdb" %in% LCA_DBS)}
-euk_ref_grp <- ref %>%
-  filter(str_starts(replace_na(ref_lineage, ""), "Eukaryota")) %>%
-  transmute(seq, db = REF, grp = assign_euk_group(ref_lineage))
-
-euk_db_grp <- lca %>%
-  left_join(distinct(lin, db, taxid, lineage), by = c("db", "taxid")) %>%
-  filter(str_detect(replace_na(lineage, ""), "Eukaryota")) %>%
-  transmute(seq, db, grp = assign_euk_group(lineage))
-
-euk_all <- bind_rows(euk_ref_grp, euk_db_grp)
-
-# The share of eukaryotic calls the panel cannot place differs between sources
-# (it depends on which intermediate nodes each taxonomy names), so the group
-# percentages are renormalised over the assigned transcripts only - otherwise a
-# source with more unplaced calls looks depleted in every group at once.
-euk_unres <- euk_all %>%
-  group_by(db) %>%
-  summarise(`Eukaryotic calls` = n(),
-            `Not placed by the panel` = sum(grp == UNRES),
-            `%` = `Not placed by the panel` / `Eukaryotic calls` * 100,
-            .groups = "drop")
-
-euk_comp <- euk_all %>%
-  filter(grp != UNRES) %>%
-  count(db, grp) %>%
-  group_by(db) %>% mutate(pct = n / sum(n) * 100) %>% ungroup()
-
-N$n_euk_calls_repdb <- sum(euk_db_grp$db == "repdb")
-N$n_euk_calls_ref <- nrow(euk_ref_grp)
-
-show_tbl(euk_unres, "Eukaryotic calls the group panel cannot place. This is a property of the naming schemes, not of the biology, and is why the composition below is renormalised over placed transcripts.")
-
-show_tbl(
-  euk_comp %>% select(-n) %>%
-    pivot_wider(names_from = db, values_from = pct) %>%
-    arrange(desc(.data[[REF]])) %>%
-    rename(Group = grp),
-  sprintf("Eukaryotic community composition, as %% of the transcripts the panel places (%s eukaryotic transcripts in the reference, %s in RepDB).",
-          fmt_n(N$n_euk_calls_ref), fmt_n(N$n_euk_calls_repdb))
-)
-```
-
-```{r n-euk-deviation, eval=("repdb" %in% LCA_DBS)}
-# how far each database's community profile sits from the reference's:
-# total absolute deviation over the panel (0 = identical profile)
-wide <- euk_comp %>% select(db, grp, pct) %>%
-  pivot_wider(names_from = db, values_from = pct, values_fill = 0)
-ref_pct <- wide[[REF]]
-
-dev_tbl <- map_dfr(setdiff(names(wide), c("grp", REF)), function(d) {
-  delta <- wide[[d]] - ref_pct
-  tibble(db = d,
-         `Total absolute deviation (pp)` = sum(abs(delta)),
-         `Largest single deviation` = wide$grp[which.max(abs(delta))])
-}) %>% arrange(`Total absolute deviation (pp)`)
-
-N$dev_repdb <- dev_tbl$`Total absolute deviation (pp)`[dev_tbl$db == "repdb"]
-N$dev_nr <- dev_tbl$`Total absolute deviation (pp)`[dev_tbl$db == "nr"]
-
-show_tbl(dev_tbl, "Distance of each database's eukaryotic community profile from the reference's, summed over the panel (percentage points; lower is closer).")
-```
-
-```{r fig-euk-composition, eval=("repdb" %in% LCA_DBS), fig.width=7.2, fig.height=4.5}
-ord <- euk_comp %>% filter(db == REF) %>% arrange(pct) %>% pull(grp)
-
-plot_euk <- euk_comp %>%
-  mutate(grp = factor(grp, levels = ord),
-         db = factor(db, levels = DB_LEVELS)) %>%
-  ggplot(aes(pct, grp, color = db)) +
-  geom_line(aes(group = grp), color = "grey80", linewidth = .4) +
-  geom_point(size = 2) +
-  scale_db() +
-  scale_x_continuous(expand = expansion(mult = c(0.02, 0.06))) +
-  labs(x = "% of the transcripts the panel places", y = "") +
-  thm
-
-ggsave(fig("FigS3_euk_composition.pdf"), plot_euk, width = 7.2, height = 4.5)
-plot_euk
-```
-
-```{r n-euk-concordance, eval=("repdb" %in% LCA_DBS)}
-# nested calls (RepDB says "other Alveolata", reference says "Dinophyceae") are
-# coarser, not wrong; only genuinely different branches count as conflicts
-nested <- function(a, b) {
-  (!is.na(EUK_PARENT[a]) & EUK_PARENT[a] == b) | (!is.na(EUK_PARENT[b]) & EUK_PARENT[b] == a)
-}
-
-conc <- euk_db_grp %>%
-  filter(db == "repdb") %>% select(seq, repdb = grp) %>%
-  inner_join(select(euk_ref_grp, seq, ref = grp), by = "seq") %>%
-  mutate(verdict = case_when(
-    repdb == UNRES | ref == UNRES ~ "one side unresolved",
-    repdb == ref ~ "same group",
-    nested(repdb, ref) ~ "compatible (one coarser)",
-    TRUE ~ "different group"
-  ))
-
-gp <- function(d, g) {
-  v <- euk_comp$pct[euk_comp$db == d & euk_comp$grp == g]
-  if (length(v) == 0) NA_real_ else v
-}
-
-conc_tbl <- conc %>% count(verdict) %>% mutate(`%` = n / sum(n) * 100)
-scored <- conc %>% filter(verdict != "one side unresolved")
-N$euk_concordance <- mean(scored$verdict != "different group") * 100
-
-show_tbl(conc_tbl, "Per-transcript concordance on the curated panel, for transcripts both sources call eukaryotic.")
-
-show_tbl(
-  scored %>% filter(verdict == "different group") %>%
-    count(ref, repdb, sort = TRUE) %>% head(10),
-  "Remaining genuine group-level disagreements (top 10)."
-)
-```
-
-```{r n-euk-text, eval=("repdb" %in% LCA_DBS), echo=FALSE, results="asis"}
-cat(sprintf(
-  "Across the %s transcripts where both sources assign a group, they are consistent **%s** of the time. The composition profiles track each other closely: the reference's three dominant groups are also RepDB's, and no group is inverted.\n\nOne asymmetry to keep in mind: the panel is built from names, and the reference's vocabulary is NCBI/PR2-derived, so nr's lineages hit it more readily than RepDB's UniEuk ones - which is why a larger share of RepDB's eukaryotic calls goes unplaced. That is nomenclature, not biology, which is why the composition is renormalised over placed transcripts.\n",
-  fmt_n(nrow(scored)), fmt_p(N$euk_concordance)
-))
-cat(sprintf(
-  "\nRepDB's community profile is also closer to the reference's than nr's overall (%s vs %s percentage points of total deviation). Two divergences are worth stating plainly rather than averaging away: RepDB under-reports **Opisthokonta** (%s vs the reference's %s), consistent with the downsampling cap measured in section 5, and over-reports **Discoba/Excavata** (%s vs %s), which tracks the residual group-level conflicts above and looks like a UniEuk placement artifact rather than a coverage effect. nr, for its part, essentially misses **Dictyochophyceae** (%s vs %s).\n",
-  fmt_d(N$dev_repdb, 1), fmt_d(N$dev_nr, 1),
-  fmt_p(gp("repdb", "Opisthokonta")), fmt_p(gp(REF, "Opisthokonta")),
-  fmt_p(gp("repdb", "Discoba/Excavata")), fmt_p(gp(REF, "Discoba/Excavata")),
-  fmt_p(gp("nr", "Dictyochophyceae")), fmt_p(gp(REF, "Dictyochophyceae"))
-))
-```
-
-## 5. Is the gap concentrated in the clades RepDB caps?
+## Is the gap concentrated in the clades RepDB caps?
 
 This is the one place where the downsampling does show a cost. The caps in
 `config/repdb.yaml` are Opisthokonta
@@ -1077,35 +806,6 @@ N$capped_cost <- sum(capped_tbl$`Queries in clade` * capped_tbl$`% unresolved in
 show_tbl(capped_tbl, "Are the transcripts RepDB fails to resolve concentrated in the downsampled clades?", digits = 2)
 ```
 
-```{r n-gap-rank, eval=("repdb" %in% LCA_DBS)}
-show_tbl(
-  gap %>% filter(unresolved) %>%
-    count(`Reference rank` = ref_rank, sort = TRUE) %>%
-    mutate(`%` = n / sum(n) * 100),
-  "How deeply had the reference itself placed the transcripts RepDB leaves unresolved?"
-)
-
-show_tbl(
-  gap %>%
-    mutate(ref_supergroup = replace_na(ref_supergroup, "(none)")) %>%
-    count(ref_domain, ref_supergroup, unresolved) %>%
-    pivot_wider(names_from = unresolved, values_from = n, values_fill = 0,
-                names_prefix = "u") %>%
-    transmute(Domain = ref_domain, Supergroup = ref_supergroup,
-              Queries = uFALSE + uTRUE, Unresolved = uTRUE,
-              `% unresolved` = uTRUE / (uFALSE + uTRUE) * 100) %>%
-    arrange(desc(Unresolved)) %>% head(15),
-  "Composition of the RepDB gap by reference supergroup (top 15)."
-)
-```
-
-```{r n-capped-text, eval=("repdb" %in% LCA_DBS), echo=FALSE, results="asis"}
-cat(sprintf(
-  "Opisthokonta is measurably worse (%s unresolved inside versus %s outside), and Ciliophora mildly so, which is consistent with the caps having a cost. But the affected clades are a small part of a marine metatranscriptome: the three capped clades together account for about %s unresolved transcripts, ~%s of the query set. And the transcripts RepDB fails to place are overwhelmingly ones the reference itself placed only at class or order level - not well-characterised sequences being lost.\n",
-  fmt_p(N$opis_in), fmt_p(N$opis_out),
-  fmt_n(N$capped_cost), fmt_p(N$capped_cost / N$n_queries * 100)
-))
-```
 
 # Session info
 

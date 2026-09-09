@@ -6,7 +6,7 @@
 
 # Kingdoms. Purple sits at L=0.44 rather than mid-lightness: at L=0.55 it
 # collapsed against Archaea blue (dE 7.0 deuteranope, below the 8 floor).
-color_kingdoms <- c("#C53637", "#418AD1", "#50A064", "#70279A")
+color_kingdoms <- c("#D9043D", "#56B4E9", "#009E73", "#CC79A7")
 names(color_kingdoms) <- c("Eukaryota", "Archaea", "Bacteria", "Viruses")
 
 # "Ambig" is an absence category, so it is deliberately neutral and is the one

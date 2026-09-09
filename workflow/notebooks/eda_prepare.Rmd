@@ -6,17 +6,6 @@ output:
     html_document:
         toc: true
         code_folding: hide
-params:
-    results: "results"
-    resources: "resources"
-    bundle: "results/qc/eda_bundle.RData"
-    # reduced GTDB backbone trees (see the `obtain-reduced-prokatree` chunk)
-    tree_dir: "test/tree"
-    # NR / ClusteredNR taxid count tables (see the `count-nr` chunk)
-    nr_counts: "/gpfs/projects/bsc40/databases/nr/nr_taxid_counts_tax.tsv"
-    clustnr_counts: "/gpfs/projects/bsc40/databases/nr_cluster/clustnr_taxid_counts_tax.tsv"
-    ecoli_ids: "/gpfs/projects/bsc40/databases/nr/ecoli.ids"
-    euka_cooc_min: 100
 ---
 
 
@@ -37,8 +26,25 @@ suppressPackageStartupMessages({
 .src("workflow/scripts/palettes.R")
 ```
 
+```{r config}
+P <- list(
+  results   = "results",
+  resources = "resources",
+  bundle    = "results/qc/eda_bundle.RData",
+  # reduced GTDB backbone trees (see the `obtain-reduced-prokatree` chunk)
+  tree_dir  = "test/tree",
+  # NR / ClusteredNR taxid count tables (see the `count-nr` chunk)
+  nr_counts      = "/gpfs/projects/bsc40/databases/nr/nr_taxid_counts_tax.tsv",
+  clustnr_counts = "/gpfs/projects/bsc40/databases/nr_cluster/clustnr_taxid_counts_tax.tsv",
+  ecoli_ids      = "/gpfs/projects/bsc40/databases/nr/ecoli.ids",
+  # eukaryote-eukaryote co-occurrence is only ever plotted above a threshold;
+  # baking it in here keeps the bundle small. Lower it if you want to explore
+  # weaker pairs on the laptop.
+  euka_cooc_min = 100
+)
+```
+
 ```{r paths}
-P <- as.list(params)
 res <- function(...) rp(file.path(P$results, ...))
 rsc <- function(...) rp(file.path(P$resources, ...))
 have <- function(p) !is.null(p) && length(p) == 1L && nzchar(p) && file.exists(rp(p))
@@ -313,7 +319,7 @@ cooc_case <- cont %>%
 rm(mixed, cont)
 invisible(gc())
 
-# eukaryote-eukaryote, across phyla; thresholded here (see params$euka_cooc_min)
+# eukaryote-eukaryote, across phyla; thresholded here (see P$euka_cooc_min)
 euka_cooc <- pair_cooc %>%
   left_join(tax, by = c("q" = "mnemo")) %>%
   left_join(tax, by = c("t" = "mnemo")) %>%
@@ -458,7 +464,3 @@ knitr::kable(sizes, digits = 2,
                     out, file.size(out) / 2^20))
 ```
 
-```{r done, echo=FALSE, results="asis"}
-cat(sprintf("\n**Wrote `%s` (%.1f MB).** Copy that one file to the laptop and render `eda_report.Rmd` against it.\n",
-            out, file.size(out) / 2^20))
-```
