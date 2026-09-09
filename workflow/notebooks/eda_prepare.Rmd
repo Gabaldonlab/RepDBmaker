@@ -16,39 +16,9 @@ params:
     nr_counts: "/gpfs/projects/bsc40/databases/nr/nr_taxid_counts_tax.tsv"
     clustnr_counts: "/gpfs/projects/bsc40/databases/nr_cluster/clustnr_taxid_counts_tax.tsv"
     ecoli_ids: "/gpfs/projects/bsc40/databases/nr/ecoli.ids"
-    # eukaryote-eukaryote co-occurrence is only ever plotted above a threshold;
-    # baking it in here keeps the bundle small. Lower it if you want to explore
-    # weaker pairs on the laptop.
     euka_cooc_min: 100
 ---
 
-<!--
-STEP 1 of 2. Runs on the HPC, next to the data. Reads every large input and
-writes one .RData that STEP 2 (eda_report.Rmd) turns into tables and figures on
-a laptop.
-
-Run it WITHOUT pandoc - compute nodes rarely have it:
-
-  Rscript -e 'root <- getwd()
-  dir.create(file.path(root, "results/qc"), recursive = TRUE, showWarnings = FALSE)
-  rmarkdown::render("workflow/notebooks/eda_prepare.Rmd",
-                    knit_root_dir = root,
-                    output_dir    = file.path(root, "results/qc"),
-                    output_file   = "eda_prepare.md",
-                    run_pandoc    = FALSE)'
-
-(run_pandoc = FALSE stops after knitting and leaves a .md log. Drop it if pandoc
-is available and you want the HTML.)
-
-Then copy ONE file to your laptop:
-
-  results/qc/eda_bundle.RData
-
-Nothing else is needed there - no results/, no /gpfs, no trees.
-
-Sections whose inputs are missing are skipped and recorded as such in the
-bundle, so the report knows to skip them too rather than failing.
--->
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, cache = FALSE, warning = FALSE, message = TRUE)
@@ -119,11 +89,6 @@ pretty_type <- function(x) {
   ifelse(is.na(out) & !is.na(x), str_to_sentence(x), out)
 }
 
-# RepDB sequence ids are <taxid>_<mnemo>_<accession>, so the organism is the
-# SECOND field. The n_contaminants column of repdb_meta.tsv is only a tally of
-# this file, and a version of analyze_stats.R split on the first field - which
-# yields taxids, matches no mnemo, and reports every organism as having zero
-# contaminants. Recompute from the primary artifact and cross-check.
 contam_file <- res("dbs", "repdb", "decontaminate", "contaminants.txt")
 if (file.exists(contam_file)) {
   cont_ids <- readLines(contam_file, warn = FALSE)
@@ -160,8 +125,6 @@ repdb_df <- meta %>%
 
 tax <- repdb_df %>% select(mnemo, k, p, c, o, f, g, s)
 
-# Contamination underpins the whole decontamination section, and its failure
-# mode is a plausible-looking uniform zero rather than an error.
 contam_check <- tibble(
   Source = c("contaminants.txt (recomputed here)", "repdb_meta.tsv (n_contaminants)"),
   `Flagged sequences` = c(
@@ -281,9 +244,6 @@ if (HAVE_TREES) {
 
 # Co-occurrence of contaminants
 
-`pair_counts.tsv` is the largest input and is reduced here to the three
-aggregates the report actually plots. Everything below is per eukaryotic
-proteome, so the bundle stays small.
 
 ```{r co-occurrence}
 pair_cooc <- read_delim(res("dbs", "repdb", "decontaminate", "pair_counts.tsv"),
@@ -307,23 +267,9 @@ mixed_pairs <- pair_cooc %>%
   left_join(tax, by = c("proka" = "mnemo")) %>%
   filter(k.x == "Eukaryota" & k.y != "Eukaryota")
 
-# ---- Fig. 3D: breadth of co-occurrence, counted in DONOR GENOMES ------------
-# One row per (eukaryotic proteome, donor genus): how many genomes of that genus
-# share a contaminant cluster with the proteome. This is what Fig. 3D has always
-# plotted. It scales with how many genomes GTDB holds for a genus, so it ranks
-# how BROADLY a genus co-occurs, not how much protein is shared - fine for the
-# panel, but not a protein count. Anything the text quotes as a number of
-# proteins must come from `cooc_case` below instead.
-# Kept COMPLETE: the report's `prop` denominators are sums over all genera of a
-# proteome and would be wrong if rare pairs were dropped here.
 cooc_by_genus <- mixed_pairs %>%
   count(euka, donor_k = k.y, clade = g.y, name = "n")
 
-# ---- case studies: attribution PER FLAGGED PROTEIN --------------------------
-# pair_counts cannot answer "how many proteins", because one protein clustering
-# with homologs from 200 Cyanobium and 40 Prochlorococcus_A genomes scores
-# 200 vs 40 off that single protein. For the two proteomes the text quotes a
-# number for, attribute per protein from the cluster membership instead.
 RANKS <- c("k", "p", "c", "o", "f", "g", "s")
 
 mixed <- read_delim(res("dbs", "repdb", "decontaminate", "mixed_cluster.tsv"),
