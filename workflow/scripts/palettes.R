@@ -1,13 +1,42 @@
-color_kingdoms <- c("#D9043D", "#56B4E9", "#009E73", "#CC79A7")
+# Every palette below that reaches a paper figure is verified by
+# workflow/scripts/check_palettes.R: OKLCH lightness band, chroma floor, WCAG
+# contrast on white, and OKLab Delta E between all pairs under normal,
+# protanope and deuteranope vision (Machado-Oliveira-Fernandes 2009, severity
+# 1.0). Run that script after touching anything here - do not eyeball it.
+
+# Kingdoms. Purple sits at L=0.44 rather than mid-lightness: at L=0.55 it
+# collapsed against Archaea blue (dE 7.0 deuteranope, below the 8 floor).
+color_kingdoms <- c("#C53637", "#418AD1", "#50A064", "#70279A")
 names(color_kingdoms) <- c("Eukaryota", "Archaea", "Bacteria", "Viruses")
 
-color_contaminants <- c("grey50", "#56B4E9", "#009E73", "#CC79A7")
+# "Ambig" is an absence category, so it is deliberately neutral and is the one
+# slot exempt from the chroma floor; it still clears dE 15 against the rest.
+color_contaminants <- c("#B4B4B4", "#418AD1", "#50A064", "#70279A")
 names(color_contaminants) <- c("Ambig", "Archaea", "Bacteria", "Viruses")
 
-color_benchdbs <- c("nr"="#20558A",
-                    "clustnr"="#307FCF",
-                    "repdb"="#449E77",
-                    "clustrepdb"="#62E4AB")
+# Benchmarked databases: hue carries the family (nr blue, RepDB green) and
+# lightness carries clustered-or-not, so the pairing is readable without a
+# fifth and sixth hue. Both members of each pair sit inside the L 0.43-0.77
+# band - the previous "clustrepdb" (#62E4AB, L=0.83) sat above it and rendered
+# at 1.55:1 on white, i.e. invisible when printed.
+color_benchdbs <- c("nr"="#285994",
+                    "clustnr"="#689BDB",
+                    "repdb"="#267B4C",
+                    "clustrepdb"="#6EBF8C")
+
+# Panel C of Fig. 5: agreement is green, disagreement orange, and the two
+# "no answer" outcomes are neutral - light grey where a homolog exists but the
+# LCA would not commit, dark grey where there is no homolog at all. Both greys
+# are absence categories and so waive the chroma floor; they still separate
+# from each other by dE 31 (they differ by 0.31 in OKLCH L).
+#
+# The green is #349D62 rather than a deeper forest green because it also has to
+# stay clear of `repdb`'s green in panels A/B/D of the same figure: at
+# L=0.55/H=150 the two were dE 3.6 apart, which is indistinguishable. Pushing it
+# lighter opens that to dE 10.2 while keeping green-vs-orange above the dE 8 CVD
+# floor (8.7) - a yellower green scores better against repdb but collapses
+# against the orange under protanopia (dE 0.4).
+outcome_colors_ref <- c("#349D62", "#CF6F19", "#B4B4B4", "#585858")
 
 color_dbs <- c("p10k"="#449E77",
                "eukprot"="#EBCD62",

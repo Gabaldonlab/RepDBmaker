@@ -1,0 +1,518 @@
+---
+title: "RepDB EDA — data preparation"
+date: "`r format(Sys.time(), '%d-%b-%Y')`"
+author: "Giacomo Mutti"
+output:
+    html_document:
+        toc: true
+        code_folding: hide
+params:
+    results: "results"
+    resources: "resources"
+    bundle: "results/qc/eda_bundle.RData"
+    # reduced GTDB backbone trees (see the `obtain-reduced-prokatree` chunk)
+    tree_dir: "test/tree"
+    # NR / ClusteredNR taxid count tables (see the `count-nr` chunk)
+    nr_counts: "/gpfs/projects/bsc40/databases/nr/nr_taxid_counts_tax.tsv"
+    clustnr_counts: "/gpfs/projects/bsc40/databases/nr_cluster/clustnr_taxid_counts_tax.tsv"
+    ecoli_ids: "/gpfs/projects/bsc40/databases/nr/ecoli.ids"
+    # eukaryote-eukaryote co-occurrence is only ever plotted above a threshold;
+    # baking it in here keeps the bundle small. Lower it if you want to explore
+    # weaker pairs on the laptop.
+    euka_cooc_min: 100
+---
+
+<!--
+STEP 1 of 2. Runs on the HPC, next to the data. Reads every large input and
+writes one .RData that STEP 2 (eda_report.Rmd) turns into tables and figures on
+a laptop.
+
+Run it WITHOUT pandoc - compute nodes rarely have it:
+
+  Rscript -e 'root <- getwd()
+  dir.create(file.path(root, "results/qc"), recursive = TRUE, showWarnings = FALSE)
+  rmarkdown::render("workflow/notebooks/eda_prepare.Rmd",
+                    knit_root_dir = root,
+                    output_dir    = file.path(root, "results/qc"),
+                    output_file   = "eda_prepare.md",
+                    run_pandoc    = FALSE)'
+
+(run_pandoc = FALSE stops after knitting and leaves a .md log. Drop it if pandoc
+is available and you want the HTML.)
+
+Then copy ONE file to your laptop:
+
+  results/qc/eda_bundle.RData
+
+Nothing else is needed there - no results/, no /gpfs, no trees.
+
+Sections whose inputs are missing are skipped and recorded as such in the
+bundle, so the report knows to skip them too rather than failing.
+-->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = FALSE, warning = FALSE, message = TRUE)
+```
+
+```{r libs}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(ape)
+  library(phytools)
+  library(ggtree)   # only for fortify() on a phylo, to derive the tip order
+})
+
+.src <- function(p) source(if (file.exists(p)) p else file.path("..", "..", p))
+.src("workflow/scripts/functions.R")
+.src("workflow/scripts/palettes.R")
+```
+
+```{r paths}
+P <- as.list(params)
+res <- function(...) rp(file.path(P$results, ...))
+rsc <- function(...) rp(file.path(P$resources, ...))
+have <- function(p) !is.null(p) && length(p) == 1L && nzchar(p) && file.exists(rp(p))
+
+HAVE_TREES <- have(file.path(P$tree_dir, "ar53_reduced.tree")) &&
+  have(file.path(P$tree_dir, "bac120_reduced.tree")) &&
+  have(file.path(P$resources, "etol.nwk"))
+HAVE_NR    <- have(P$nr_counts) && have(P$clustnr_counts)
+HAVE_ECOLI <- HAVE_NR && have(P$ecoli_ids)
+
+message("trees: ", HAVE_TREES, " | nr: ", HAVE_NR, " | ecoli: ", HAVE_ECOLI)
+```
+
+# Per-organism table
+
+```{r parse-data}
+# results/meta/<db>_meta.tsv (workflow/scripts/analyze_stats.R) is the
+# per-organism provenance table: source_db, the harmonized 7 ranks, data_type,
+# completeness (BUSCO for eukaryotes / CheckM2 for GTDB), the decontamination
+# flagging and the seqkit size stats.
+meta <- read_delim(res("meta", "repdb_meta.tsv"), show_col_types = FALSE)
+
+# CheckM2 *contamination* is the one prokaryotic field not propagated into the
+# meta table, so take it straight from the GTDB metadata
+gtdb <- read_delim(res("meta", "gtdb_meta.tsv"), show_col_types = FALSE) %>%
+  transmute(
+    mnemo = gsub("^GB|^RS|\\..*", "", gsub("_", "", accession)),
+    checkm2_contamination
+  )
+
+# data_type is normalized (lower case) upstream; map it onto the palette labels
+pretty_type <- function(x) {
+  lut <- c(
+    "genome"                    = "Genome",
+    "genome (de novo sequencing)" = "Genome",
+    "complete genome"           = "Complete genome",
+    "chromosome"                = "Chromosome",
+    "scaffold"                  = "Scaffold",
+    "contig"                    = "Contig",
+    "single-cell"               = "S.C. genome",
+    "single-cell genome"        = "S.C. genome",
+    "transcriptome"             = "Transcriptome",
+    "single-cell transcriptome" = "S.C. transcriptome",
+    "est"                       = "EST",
+    "transcriptome,est"         = "EST"
+  )
+  out <- unname(lut[tolower(x)])
+  ifelse(is.na(out) & !is.na(x), str_to_sentence(x), out)
+}
+
+# RepDB sequence ids are <taxid>_<mnemo>_<accession>, so the organism is the
+# SECOND field. The n_contaminants column of repdb_meta.tsv is only a tally of
+# this file, and a version of analyze_stats.R split on the first field - which
+# yields taxids, matches no mnemo, and reports every organism as having zero
+# contaminants. Recompute from the primary artifact and cross-check.
+contam_file <- res("dbs", "repdb", "decontaminate", "contaminants.txt")
+if (file.exists(contam_file)) {
+  cont_ids <- readLines(contam_file, warn = FALSE)
+  cont_ids <- cont_ids[nzchar(cont_ids)]
+  contam_tally <- tibble(mnemo = str_split_i(cont_ids, "_", 2)) %>%
+    filter(!is.na(mnemo)) %>%
+    count(mnemo, name = "n_conts_file")
+} else {
+  contam_tally <- tibble(mnemo = character(0), n_conts_file = integer(0))
+}
+HAVE_CONTAM_FILE <- nrow(contam_tally) > 0
+
+repdb_df <- meta %>%
+  left_join(gtdb, by = "mnemo") %>%
+  left_join(contam_tally, by = "mnemo") %>%
+  mutate(
+    db = source_db,
+    label = case_when(
+      k %in% c("Bacteria", "Archaea") ~ p,
+      k %in% c("Eukaryota", "Viruses") ~ c
+    ),
+    type = pretty_type(data_type),
+    n_conts = if (HAVE_CONTAM_FILE) {
+      replace_na(n_conts_file, 0L)
+    } else {
+      replace_na(n_contaminants, 0L)
+    },
+    mmseqs_contamination = if_else(num_seqs > 0, n_conts / num_seqs * 100, NA_real_),
+    contamination = case_when(
+      k %in% c("Bacteria", "Archaea") ~ checkm2_contamination,
+      k == "Eukaryota" ~ mmseqs_contamination
+    )
+  )
+
+tax <- repdb_df %>% select(mnemo, k, p, c, o, f, g, s)
+
+# Contamination underpins the whole decontamination section, and its failure
+# mode is a plausible-looking uniform zero rather than an error.
+contam_check <- tibble(
+  Source = c("contaminants.txt (recomputed here)", "repdb_meta.tsv (n_contaminants)"),
+  `Flagged sequences` = c(
+    if (HAVE_CONTAM_FILE) sum(contam_tally$n_conts_file) else NA_integer_,
+    sum(meta$n_contaminants, na.rm = TRUE)
+  ),
+  `Organisms affected` = c(
+    if (HAVE_CONTAM_FILE) sum(contam_tally$mnemo %in% meta$mnemo) else NA_integer_,
+    sum(meta$n_contaminants > 0, na.rm = TRUE)
+  )
+) %>%
+  mutate(Used = c(HAVE_CONTAM_FILE, !HAVE_CONTAM_FILE))
+
+message(nrow(repdb_df), " organisms; ",
+        sum(repdb_df$n_conts), " flagged contaminant sequences")
+
+clust_stats <- read_delim(res("stats", "repdb_clustered_stats.tsv"),
+  show_col_types = FALSE
+) %>%
+  mutate(
+    c = str_remove(basename(file), "\\.(faa|fa|fasta)(\\.gz)?$"),
+    db = "clust_repdb"
+  ) %>%
+  select(c, num_seqs, db)
+
+virus_raw <- read_delim(rsc("ncbi_virus_metadata.tsv"), show_col_types = FALSE) %>%
+  mutate(mnemo = gsub("_|\\..*", "", Assembly))
+virus_groups <- read_delim(res("meta", "refseq_virus_groups.tsv"),
+  col_names = c("realm", "kingdom", "p"), show_col_types = FALSE
+) %>%
+  filter(!is.na(kingdom))
+
+virus_df <- repdb_df %>%
+  filter(k == "Viruses") %>%
+  select(mnemo, k, p, c, s, num_seqs, label) %>%
+  left_join(virus_groups, by = "p") %>%
+  left_join(virus_raw, by = "mnemo")
+```
+
+# Disk footprint and build benchmarks
+
+```{r footprint}
+db_files <- c(
+  "FASTA (gzipped)" = res("dbs", "repdb", "repdb.fa.gz"),
+  "DIAMOND index"   = res("dbs", "repdb", "repdb_diamond.dmnd"),
+  "Clustered FASTA (gzipped)" = res("dbs", "repdb", "repdb_clustered.fa.gz")
+)
+mmseqs_sz <- sum(file.size(list.files(res("dbs", "repdb"),
+  pattern = "^repdb_mmseqs", full.names = TRUE)), na.rm = TRUE)
+
+footprint <- tibble(
+  Artifact = c(names(db_files), "MMseqs2 index"),
+  Bytes = c(unname(file.size(db_files)), mmseqs_sz)
+) %>%
+  filter(!is.na(Bytes), Bytes > 0) %>%
+  mutate(GB = Bytes / 2^30)
+
+bench_files <- list.files(res("benchmarks", "dbs", "repdb"),
+  pattern = "\\.txt$", full.names = TRUE)
+bench_build <- if (length(bench_files)) {
+  map_dfr(bench_files, ~ read_tsv(.x, show_col_types = FALSE) %>%
+    mutate(Step = str_remove(basename(.x), "\\.txt$"), .before = 1)) %>%
+    select(Step, any_of(c("s", "h:m:s", "max_rss", "max_vms", "cpu_time")))
+} else NULL
+```
+
+# Backbone trees
+
+```{bash obtain-reduced-prokatree, eval=FALSE, engine="sh"}
+# Run once from the directory holding the GTDB reference trees (ar53.tree,
+# bac120.tree); `results/` is the finished RepDBmaker run. Column 20 of
+# gtdb_meta.tsv is the GTDB lineage.
+cut -f1,20 results/meta/gtdb_meta.tsv | grep "d__Archaea" | sed 's/;c.*.//g' | sed 's/d__.*.p__//g' > armap
+# the only problem is that phyla with one genome (Huberarchaeota and JACRDV01)
+# are not collapsed - the mysterious bug in nw_rename
+nw_prune ar53.tree GB_GCA_003724275.1 | nw_rename - armap | nw_condense - > ar53_reduced.tree
+
+cut -f1,20 results/meta/gtdb_meta.tsv | grep "d__Bacteria" | sed 's/;c.*.//g' | sed 's/d__.*.p__//g' > bacmap
+nw_rename bac120.tree bacmap | nw_condense - > bac120_reduced.tree
+```
+
+```{r trees}
+eukaproka_tree <- virtree <- repdb_classtree <- NULL
+
+if (HAVE_TREES) {
+  artree  <- read.tree(rp(file.path(P$tree_dir, "ar53_reduced.tree")))
+  bactree <- read.tree(rp(file.path(P$tree_dir, "bac120_reduced.tree")))
+  euktree <- read.tree(rsc("etol.nwk"))
+
+  v_fct <- virus_df %>%
+    distinct(k, realm, kingdom, p, c) %>%
+    filter(!grepl("unclassi", p), !grepl("unclassi", c)) %>%
+    mutate_if(is.character, as.factor)
+
+  virtree <- as.phylo.formula(~ k / realm / kingdom / p / c, data = v_fct)
+
+  tmp <- bind.tip(bactree, tip.label = "archaea", where = length(bactree$tip.label) + 1)
+  tmp <- root(tmp, "archaea", resolve.root = T)
+  tmp <- bind.tree(tmp, artree, where = which(tmp$tip.label == "archaea"))
+  tmp <- bind.tip(tmp, tip.label = "euk", where = which(grepl("Asgardarchaeota", tmp$tip.label)))
+  eukaproka_tree <- bind.tree(tmp, euktree, where = which(tmp$tip.label == "euk"))
+  tmp <- bind.tip(eukaproka_tree, tip.label = "vir",
+                  where = length(eukaproka_tree$tip.label) + 1)
+  tmp <- root(tmp, "vir", resolve.root = T)
+  repdb_classtree <- bind.tree(tmp, virtree, where = which(tmp$tip.label == "vir"))
+
+  p_order <- fortify(repdb_classtree) %>%
+    filter(isTip) %>% arrange(desc(y)) %>% pull(label)
+} else {
+  # the eukaryotic panels order their y axis by the backbone tree; without it,
+  # fall back to a taxonomy-driven ordering so the report still renders
+  p_order <- repdb_df %>%
+    distinct(k, p, label) %>% filter(!is.na(label)) %>%
+    arrange(k, p, label) %>% pull(label)
+}
+```
+
+# Co-occurrence of contaminants
+
+`pair_counts.tsv` is the largest input and is reduced here to the three
+aggregates the report actually plots. Everything below is per eukaryotic
+proteome, so the bundle stays small.
+
+```{r co-occurrence}
+pair_cooc <- read_delim(res("dbs", "repdb", "decontaminate", "pair_counts.tsv"),
+  col_names = c("n", "tmpq", "tmpt"), show_col_types = FALSE
+) %>%
+  mutate(q = pmin(tmpq, tmpt), t = pmax(tmpq, tmpt)) %>%
+  select(-contains("tmp")) %>%
+  group_by(q, t) %>%
+  summarise(n = sum(n), .groups = "drop")
+
+message("pair_counts: ", nrow(pair_cooc), " unique pairs")
+
+euk_mnemos <- repdb_df$mnemo[repdb_df$k == "Eukaryota"]
+
+mixed_pairs <- pair_cooc %>%
+  mutate(
+    euka  = ifelse(q %in% euk_mnemos, q, t),
+    proka = ifelse(q %in% euk_mnemos, t, q)
+  ) %>%
+  left_join(tax, by = c("euka" = "mnemo")) %>%
+  left_join(tax, by = c("proka" = "mnemo")) %>%
+  filter(k.x == "Eukaryota" & k.y != "Eukaryota")
+
+# ---- Fig. 3D: breadth of co-occurrence, counted in DONOR GENOMES ------------
+# One row per (eukaryotic proteome, donor genus): how many genomes of that genus
+# share a contaminant cluster with the proteome. This is what Fig. 3D has always
+# plotted. It scales with how many genomes GTDB holds for a genus, so it ranks
+# how BROADLY a genus co-occurs, not how much protein is shared - fine for the
+# panel, but not a protein count. Anything the text quotes as a number of
+# proteins must come from `cooc_case` below instead.
+# Kept COMPLETE: the report's `prop` denominators are sums over all genera of a
+# proteome and would be wrong if rare pairs were dropped here.
+cooc_by_genus <- mixed_pairs %>%
+  count(euka, donor_k = k.y, clade = g.y, name = "n")
+
+# ---- case studies: attribution PER FLAGGED PROTEIN --------------------------
+# pair_counts cannot answer "how many proteins", because one protein clustering
+# with homologs from 200 Cyanobium and 40 Prochlorococcus_A genomes scores
+# 200 vs 40 off that single protein. For the two proteomes the text quotes a
+# number for, attribute per protein from the cluster membership instead.
+RANKS <- c("k", "p", "c", "o", "f", "g", "s")
+
+mixed <- read_delim(res("dbs", "repdb", "decontaminate", "mixed_cluster.tsv"),
+  col_names = c("rep", "seq", "taxid", "tax"), delim = "\t",
+  show_col_types = FALSE, progress = FALSE
+) %>%
+  separate(tax, RANKS, sep = ";", fill = "right") %>%
+  transmute(rep, seq, mnemo = str_split_i(seq, "_", 2), k, p, f, g)
+
+# the authoritative flagged set (get_contaminants.R), one row per flagged protein
+cont <- read_delim(res("dbs", "repdb", "decontaminate", "contaminants.tsv"),
+  show_col_types = FALSE, progress = FALSE
+) %>%
+  transmute(euka = str_split_i(seq, "_", 2), seq, rep)
+
+message("mixed clusters: ", n_distinct(mixed$rep),
+        " | flagged proteins: ", nrow(cont))
+
+# full detail for the two proteomes discussed in the text. `Donor genomes` is
+# carried alongside so the difference between the two units stays visible.
+case_ids <- c("EP01030", "P10K-NCBI-001938")
+case_reps <- cont %>% filter(euka %in% case_ids) %>% pull(rep) %>% unique()
+
+cooc_case <- cont %>%
+  filter(euka %in% case_ids) %>%
+  inner_join(
+    mixed %>%
+      filter(k != "Eukaryota", rep %in% case_reps) %>%
+      transmute(rep, donor_mnemo = mnemo,
+                Kingdom = k, Phylum = p, Family = f, Genus = g),
+    by = "rep", relationship = "many-to-many"
+  ) %>%
+  group_by(Proteome = euka, Kingdom, Phylum, Family, Genus) %>%
+  summarise(
+    `Flagged proteins` = n_distinct(seq),
+    `Donor genomes`    = n_distinct(donor_mnemo),
+    .groups = "drop"
+  ) %>%
+  arrange(Proteome, desc(`Flagged proteins`))
+
+rm(mixed, cont)
+invisible(gc())
+
+# eukaryote-eukaryote, across phyla; thresholded here (see params$euka_cooc_min)
+euka_cooc <- pair_cooc %>%
+  left_join(tax, by = c("q" = "mnemo")) %>%
+  left_join(tax, by = c("t" = "mnemo")) %>%
+  filter(k.x == "Eukaryota", k.y == "Eukaryota", p.x != p.y,
+         n >= P$euka_cooc_min) %>%
+  select(q, t, n, p.x, p.y, s.x, s.y)
+
+# viral co-occurrence, pre-aggregated into the two tables the report shows
+virus_mnemos <- virus_df$mnemo
+viral_pairs <- pair_cooc %>%
+  filter(q %in% virus_mnemos | t %in% virus_mnemos) %>%
+  mutate(
+    virus = ifelse(q %in% virus_mnemos, q, t),
+    rest  = ifelse(q %in% virus_mnemos, t, q)
+  ) %>%
+  left_join(tax, by = c("virus" = "mnemo")) %>%
+  left_join(tax, by = c("rest" = "mnemo"))
+
+viral_cooc <- viral_pairs %>%
+  filter(k.y != "Viruses") %>%
+  group_by(`Viral class` = c.x, `Non-viral phylum` = p.y) %>%
+  summarise(`Summed co-occurrence` = sum(n), .groups = "drop") %>%
+  arrange(desc(`Summed co-occurrence`))
+
+viral_cooc_megavir <- viral_pairs %>%
+  filter(c.x == "Megaviricetes", p.y == "Diaphoretickes") %>%
+  arrange(desc(n)) %>%
+  transmute(Virus = virus, `Viral class` = c.x, Partner = rest,
+            `Partner species` = s.y, `Co-occurrence` = n) %>%
+  head(50)
+
+message("cooc_by_genus: ", nrow(cooc_by_genus), " rows (donor genomes per genus) | euka_cooc: ",
+        nrow(euka_cooc), " | viral_cooc: ", nrow(viral_cooc))
+
+rm(pair_cooc, mixed_pairs, viral_pairs)
+invisible(gc())
+```
+
+# nr / ClusteredNR
+
+```{bash count-nr, eval=FALSE, engine="sh"}
+cd /gpfs/projects/bsc40/databases/nr
+
+blastdbcmd -db nr -entry all -outfmt "%a %T" > nr.fna.taxidmapping
+
+LC_ALL=C awk -F' ' '{count[$2]++} END {for (i in count) print i"\t"count[i]}' nr.fna.taxidmapping | taxonkit reformat -I 1 -f "{C}\t{a}\t{r}\t{d}\t{p}\t{c}\t{o}\t{f}" --data-dir taxonomy > nr_taxid_counts_tax.tsv
+
+echo 562 | taxonkit list | grep . > ecoli.ids
+```
+
+```{r nr}
+nr_classes <- clustnr_classes <- reduction_nr <- NULL
+nr_totals <- ecoli_counts <- NULL
+
+if (HAVE_NR) {
+  nr_cols <- c("taxid", "n", "cell", "acell", "r", "k", "p", "c", "o", "f")
+  read_nr_counts <- function(path, db) {
+    read_delim(path, col_names = nr_cols, show_col_types = FALSE) %>%
+      filter(!is.na(cell) | !is.na(acell)) %>%
+      mutate(k = case_when(acell == "Viruses" ~ acell, .default = k), db = db) %>%
+      select(-acell, -r, -cell)
+  }
+  nr_num      <- read_nr_counts(P$nr_counts, "nr")
+  clustnr_num <- read_nr_counts(P$clustnr_counts, "clustnr")
+
+  nr_classes <- nr_num %>% group_by(k, p, c) %>%
+    summarise(n = sum(n), .groups = "drop") %>% mutate(db = "nr")
+  clustnr_classes <- clustnr_num %>% group_by(k, p, c) %>%
+    summarise(n = sum(n), .groups = "drop") %>% mutate(db = "clustnr")
+
+  nr_totals <- c(nr = sum(nr_num$n), clustnr = sum(clustnr_num$n))
+
+  reduction_nr <- bind_rows(
+    group_by(nr_num, db, k, p, c) %>% summarise(num_seqs = sum(n), .groups = "drop"),
+    group_by(clustnr_num, db, k, p, c) %>% summarise(num_seqs = sum(n), .groups = "drop")
+  ) %>%
+    pivot_wider(names_from = db, values_from = num_seqs) %>%
+    mutate(db = "nr", size = clustnr, reduction = nr - clustnr,
+           prop_reduction = reduction / nr) %>%
+    arrange(desc(prop_reduction)) %>%
+    select(-nr, -clustnr) %>% ungroup()
+
+  if (HAVE_ECOLI) {
+    ecoli <- as.numeric(readLines(rp(P$ecoli_ids)))
+    ecoli_counts <- c(
+      nr      = sum(filter(nr_num, taxid %in% ecoli)$n),
+      clustnr = sum(filter(clustnr_num, taxid %in% ecoli)$n)
+    )
+  }
+  message("nr: ", format(nr_totals[["nr"]], big.mark = ","), " sequences")
+  rm(nr_num, clustnr_num)
+  invisible(gc())
+}
+```
+
+# Write the bundle
+
+```{r save-bundle}
+bundle_meta <- list(
+  created      = Sys.time(),
+  host         = Sys.info()[["nodename"]],
+  r_version    = R.version.string,
+  results_dir  = normalizePath(rp(P$results), mustWork = FALSE),
+  params       = P,
+  have         = c(trees = HAVE_TREES, nr = HAVE_NR, ecoli = HAVE_ECOLI,
+                   contam_file = HAVE_CONTAM_FILE),
+  n_organisms  = nrow(repdb_df),
+  git_commit   = tryCatch(
+    system("git rev-parse --short HEAD", intern = TRUE, ignore.stderr = TRUE),
+    error = function(e) NA_character_)
+)
+
+BUNDLE <- c(
+  # core
+  "repdb_df", "clust_stats", "virus_df", "virus_groups", "p_order",
+  "contam_check", "contam_file", "footprint", "bench_build",
+  # trees (NULL when absent)
+  "eukaproka_tree", "virtree", "repdb_classtree",
+  # co-occurrence aggregates
+  "cooc_by_genus", "cooc_case", "euka_cooc", "viral_cooc", "viral_cooc_megavir",
+  # nr side (NULL when absent)
+  "nr_classes", "clustnr_classes", "reduction_nr", "nr_totals", "ecoli_counts",
+  # flags + provenance
+  "HAVE_TREES", "HAVE_NR", "HAVE_ECOLI", "HAVE_CONTAM_FILE", "bundle_meta"
+)
+
+out <- rp(P$bundle)
+dir.create(dirname(out), showWarnings = FALSE, recursive = TRUE)
+save(list = BUNDLE, file = out, compress = "gzip")
+
+sizes <- tibble(
+  Object = BUNDLE,
+  Rows = map_chr(BUNDLE, function(o) {
+    x <- get(o)
+    if (is.data.frame(x)) format(nrow(x), big.mark = ",") else "-"
+  }),
+  MB = map_dbl(BUNDLE, ~ as.numeric(object.size(get(.x))) / 2^20)
+) %>% arrange(desc(MB))
+
+knitr::kable(sizes, digits = 2,
+  caption = sprintf("Bundle contents. File: %s (%.1f MB on disk).",
+                    out, file.size(out) / 2^20))
+```
+
+```{r done, echo=FALSE, results="asis"}
+cat(sprintf("\n**Wrote `%s` (%.1f MB).** Copy that one file to the laptop and render `eda_report.Rmd` against it.\n",
+            out, file.size(out) / 2^20))
+```

@@ -230,6 +230,7 @@ Everything beyond this README lives under [`docs/`](docs/):
 - [Decontamination](docs/decontamination.md): the cross-domain contamination filter
 - [Outputs and quality control](docs/outputs-and-qc.md): where everything lands, and the QC reports
 - [Utilities and benchmarking](docs/utilities-and-benchmarking.md): helper scripts, the NR/PhyloDB comparison
+- [Reproducing the paper figures](docs/figures.md): the two-stage HPC → laptop notebook split, and the palette checks
 - [Building & releasing RepDB](docs/releasing.md): the full release process
 
 ## Citation

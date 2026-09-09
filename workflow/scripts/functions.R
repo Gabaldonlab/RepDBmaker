@@ -1,9 +1,16 @@
-# got it from here: https://raw.githubusercontent.com/Arcadia-Science/prehgt/ba092b0e01a20688de56292883d7e35be0e2db08/bin/blastp_to_hgt_candidates_kingdom.R
+# Gini coefficient: 0 = every class equally represented, 1 = all sequences in a
+# single class.
+#
+# The previous implementation (adapted from
+# https://raw.githubusercontent.com/Arcadia-Science/prehgt/ba092b0e01a20688de56292883d7e35be0e2db08/bin/blastp_to_hgt_candidates_kingdom.R)
+# returned 1 - G: it gave 1.000 for a perfectly even vector and 0.020 for an
+# extremely skewed one, i.e. an evenness index with the axis label of a Gini
+# index. Anything comparing "taxonomic balance" across databases with it was
+# inverted. Verify with: gini(rep(1, 10)) == 0.
 gini <- function(x) {
-  # calculate gini coefficient
   x_sorted <- sort(x)
   n <- length(x_sorted)
-  return (1 - 2 * (sum((1:n) * x_sorted) / sum(x_sorted) - (n + 1) / 2) / n)
+  2 * sum(seq_len(n) * x_sorted) / (n * sum(x_sorted)) - (n + 1) / n
 }
 
 dmnd_cols <- c(

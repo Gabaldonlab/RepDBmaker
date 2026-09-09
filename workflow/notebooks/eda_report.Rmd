@@ -1,0 +1,1261 @@
+---
+title: "RepDB EDA"
+date: "`r format(Sys.time(), '%d-%b-%Y')`"
+author: "Giacomo Mutti"
+output:
+    rmdformats::html_clean:
+        number_sections: false
+        code_folding: hide
+        self_contained: true
+        fig_caption: true
+        gallery: true
+        toc_depth: 3
+        highlight: kate
+params:
+    bundle: "results/qc/eda_bundle.RData"
+    figdir: "results/plots"
+    comparison_rds: "results/plots/comparison.Rds"
+    recall_rds: "results/plots/recall.RDS"
+---
+
+<!--
+STEP 2 of 2. Runs on a laptop. Reads ONLY the .RData written by eda_prepare.Rmd
+(step 1, on the HPC) and produces every table and figure. It never touches
+results/, /gpfs or the trees.
+
+  Rscript -e 'root <- getwd()
+  dir.create(file.path(root, "results/qc"), recursive = TRUE, showWarnings = FALSE)
+  rmarkdown::render("workflow/notebooks/eda_report.Rmd",
+                    knit_root_dir = root,
+                    output_dir    = file.path(root, "results/qc"),
+                    output_file   = "eda.html")'
+
+Bind the root to a variable first: render() does setwd(dirname(input)) before it
+forces `output_file`, so a lazily evaluated getwd() there resolves against
+workflow/notebooks/ instead of the repo root.
+
+If the bundle lives elsewhere, pass params = list(bundle = "~/eda_bundle.RData").
+
+Sections whose inputs were missing on the HPC, or whose plotting packages are
+missing here, are skipped with a note instead of aborting.
+-->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, cache = FALSE, warning = FALSE, message = FALSE
+)
+if (nzchar(Sys.which("pdfcrop"))) {
+  knitr::knit_hooks$set(crop = knitr::hook_pdfcrop)
+  knitr::opts_chunk$set(crop = TRUE)
+}
+```
+
+```{r libs}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(patchwork)
+})
+theme_set(theme_classic())
+
+.src <- function(p) source(if (file.exists(p)) p else file.path("..", "..", p))
+.src("workflow/scripts/functions.R")
+.src("workflow/scripts/palettes.R")
+
+# the tree and treemap panels need packages that may not be installed on a
+# laptop; everything else works without them
+pkg <- function(...) all(vapply(c(...), requireNamespace, logical(1), quietly = TRUE))
+HAVE_TREE_PKGS <- pkg("ggtree", "ggtreeExtra", "ggnewscale")
+HAVE_TREEMAP   <- pkg("WeightedTreemaps")
+if (HAVE_TREE_PKGS) suppressPackageStartupMessages({
+  library(ggtree); library(ggtreeExtra)
+})
+if (HAVE_TREEMAP) suppressPackageStartupMessages(library(WeightedTreemaps))
+```
+
+```{r load-bundle}
+.rp <- function(p) if (!file.exists(p) && file.exists(file.path("..", "..", p))) file.path("..", "..", p) else p
+bundle_path <- .rp(params$bundle)
+if (!file.exists(bundle_path)) {
+  stop("bundle not found: ", bundle_path,
+       "\nRun workflow/notebooks/eda_prepare.Rmd on the HPC and copy the .RData here,",
+       "\nor pass params = list(bundle = \"/path/to/eda_bundle.RData\").")
+}
+load(bundle_path)
+
+figdir <- .rp(params$figdir)
+dir.create(figdir, showWarnings = FALSE, recursive = TRUE)
+fig <- function(name) file.path(figdir, name)
+
+# taxonomy lookup, rebuilt from the per-organism table
+tax <- repdb_df %>% select(mnemo, k, p, c, o, f, g, s)
+
+TREES <- HAVE_TREES && HAVE_TREE_PKGS
+skip_note <- function(cond, msg) if (!cond) cat("> **Skipped**: ", msg, "\n\n", sep = "")
+```
+
+```{r provenance, echo=FALSE}
+show_meta <- tibble(
+  Field = c("Bundle", "Created", "Host", "R", "Git commit", "Organisms",
+            "Trees", "nr tables", "E. coli ids", "contaminants.txt"),
+  Value = c(
+    bundle_path,
+    format(bundle_meta$created, "%Y-%m-%d %H:%M"),
+    bundle_meta$host, bundle_meta$r_version,
+    paste(bundle_meta$git_commit, collapse = ""),
+    format(bundle_meta$n_organisms, big.mark = ","),
+    as.character(HAVE_TREES), as.character(HAVE_NR),
+    as.character(HAVE_ECOLI), as.character(HAVE_CONTAM_FILE)
+  )
+)
+knitr::kable(show_meta, caption = "Where this data came from.")
+```
+
+```{r reporting-helpers}
+# N collects every quantity quoted in the manuscript so the inline text, the
+# tables and the final checklist can never drift apart.
+N <- list()
+
+show_tbl <- function(df, caption = NULL, digits = 2) {
+  k <- knitr::kable(df, caption = caption, digits = digits,
+                    format.args = list(big.mark = ","))
+  if (requireNamespace("kableExtra", quietly = TRUE)) {
+    k <- kableExtra::kable_styling(k,
+      bootstrap_options = c("striped", "condensed"), full_width = FALSE)
+  }
+  k
+}
+
+fmt_n <- function(x) formatC(round(x), format = "d", big.mark = ",")
+fmt_m <- function(x, d = 1) paste0(formatC(x / 1e6, format = "f", digits = d), "M")
+fmt_b <- function(x, d = 2) paste0(formatC(x / 1e9, format = "f", digits = d), "B")
+fmt_p <- function(x, d = 1) paste0(formatC(x, format = "f", digits = d), "%")
+fmt_d <- function(x, d = 1) formatC(x, format = "f", digits = d)
+fmt_gb <- function(x, d = 0) paste0(formatC(x / 2^30, format = "f", digits = d), "GB")
+fmt_msd <- function(m, s, d = 1) sprintf("%s±%s", fmt_d(m, d), fmt_d(s, d))
+```
+
+# General statistics of RepDB
+
+## Composition
+
+```{r n-composition}
+composition <- repdb_df %>%
+  group_by(Kingdom = k) %>%
+  summarise(
+    Proteomes = n_distinct(mnemo),
+    Species   = n_distinct(s, na.rm = TRUE),
+    `Phyla/Classes` = n_distinct(label, na.rm = TRUE),
+    Sequences = sum(num_seqs, na.rm = TRUE),
+    `Sequences (M)` = sum(num_seqs, na.rm = TRUE) / 1e6,
+    `Completeness mean` = mean(completeness, na.rm = TRUE),
+    `Completeness sd`   = sd(completeness, na.rm = TRUE),
+    `Contamination mean` = mean(contamination, na.rm = TRUE),
+    `Contamination sd`   = sd(contamination, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(Sequences))
+
+N$n_prot  <- n_distinct(repdb_df$mnemo)
+N$n_seqs  <- sum(repdb_df$num_seqs, na.rm = TRUE)
+N$n_sp    <- n_distinct(repdb_df$s, na.rm = TRUE)
+N$n_clust <- sum(clust_stats$num_seqs, na.rm = TRUE)
+
+kv <- function(kingdom, col) composition[[col]][composition$Kingdom == kingdom]
+for (kk in c("Bacteria", "Archaea", "Eukaryota", "Viruses")) {
+  N[[paste0("n_prot_", kk)]] <- kv(kk, "Proteomes")
+  N[[paste0("n_seqs_", kk)]] <- kv(kk, "Sequences")
+  N[[paste0("compl_", kk)]]  <- fmt_msd(kv(kk, "Completeness mean"), kv(kk, "Completeness sd"))
+  N[[paste0("cont_", kk)]]   <- fmt_msd(kv(kk, "Contamination mean"), kv(kk, "Contamination sd"))
+}
+
+composition %>%
+  bind_rows(summarise(composition,
+    Kingdom = "TOTAL",
+    across(c(Proteomes, Species, `Phyla/Classes`, Sequences, `Sequences (M)`), sum)
+  )) %>%
+  show_tbl("RepDB composition per kingdom. Completeness is BUSCO (eukaryotes, lineage-specific ortholog sets) or CheckM2 (prokaryotes); contamination is the mmseqs cross-kingdom flagging (eukaryotes) or CheckM2 (prokaryotes).")
+```
+
+The final database includes **`r fmt_m(N$n_seqs, 0)`** sequences
+(`r fmt_n(N$n_seqs)`) from `r fmt_n(N$n_prot)` proteomes, with a marked
+predominance of bacterial proteins
+(**`r fmt_m(N$n_seqs_Bacteria, 0)` across `r fmt_n(N$n_prot_Bacteria)` proteomes**),
+followed by Eukaryotes (`r fmt_m(N$n_seqs_Eukaryota, 1)` in
+`r fmt_n(N$n_prot_Eukaryota)` proteomes), Archaea
+(`r fmt_m(N$n_seqs_Archaea, 0)`, `r fmt_n(N$n_prot_Archaea)` proteomes) and
+Viruses (`r fmt_m(N$n_seqs_Viruses, 1)`, `r fmt_n(N$n_prot_Viruses)` proteomes).
+
+Completeness and contamination are homogeneous in Bacteria
+(`r N$compl_Bacteria`%, `r N$cont_Bacteria`%; mean ± SD) and Archaea
+(`r N$compl_Archaea`%, `r N$cont_Archaea`%), and vary substantially across
+eukaryotic phyla (`r N$compl_Eukaryota`%, `r N$cont_Eukaryota`%).
+
+## Most abundant clades
+
+```{r n-clades}
+clade_tbl <- repdb_df %>%
+  filter(!is.na(label)) %>%
+  group_by(Kingdom = k, `Phylum/Class` = label) %>%
+  summarise(
+    Proteomes = n_distinct(mnemo),
+    Species   = n_distinct(s, na.rm = TRUE),
+    Sequences = sum(num_seqs, na.rm = TRUE),
+    `Sequences (M)` = sum(num_seqs, na.rm = TRUE) / 1e6,
+    .groups = "drop"
+  ) %>%
+  mutate(`% of RepDB` = Sequences / N$n_seqs * 100) %>%
+  arrange(desc(Sequences))
+
+N$top_clades <- paste(head(clade_tbl$`Phylum/Class`, 3), collapse = ", ")
+N$top_clade_prop <- clade_tbl$`% of RepDB`[1]
+
+show_tbl(head(clade_tbl, 25),
+  "Sequences and proteomes per clade - the values labelled on the backbone tree (Fig. 2A). Top 25; the full table drives the figure.")
+```
+
+The most abundant clades are **`r N$top_clades`**; the first alone accounts for
+`r fmt_p(N$top_clade_prop)` of RepDB.
+
+## Data types and assembly levels
+
+```{r n-prokaryote-types}
+proka_type <- repdb_df %>%
+  filter(k %in% c("Bacteria", "Archaea")) %>%
+  count(`Assembly level` = type) %>%
+  mutate(`%` = n / sum(n) * 100) %>%
+  arrange(desc(`%`))
+
+N$proka_top_type <- proka_type$`Assembly level`[1]
+N$proka_top_prop <- proka_type$`%`[1]
+
+show_tbl(proka_type, "Assembly level of the prokaryotic (GTDB) genomes.")
+```
+
+All prokaryotic entries come from genomic assemblies, mostly at the
+**`r str_to_lower(N$proka_top_type)`** level (`r fmt_p(N$proka_top_prop)` of the
+cases).
+
+```{r n-eukaryote-types}
+euk_type_tbl <- repdb_df %>%
+  filter(k == "Eukaryota") %>%
+  group_by(`Data type` = type) %>%
+  summarise(Proteomes = n(), Sequences = sum(num_seqs, na.rm = TRUE), .groups = "drop") %>%
+  mutate(
+    `% proteomes` = Proteomes / sum(Proteomes) * 100,
+    `% sequences` = Sequences / sum(Sequences) * 100
+  ) %>%
+  arrange(desc(Sequences))
+
+# "transcriptomic data" = Transcriptome + S.C. transcriptome (EST reported apart)
+transcr <- repdb_df %>%
+  filter(k == "Eukaryota") %>%
+  mutate(Origin = case_when(
+    grepl("transcriptome", type, ignore.case = TRUE) ~ "transcriptome-derived",
+    type == "EST" ~ "EST",
+    TRUE ~ "genome-derived"
+  )) %>%
+  group_by(Origin) %>%
+  summarise(Proteomes = n(), Sequences = sum(num_seqs, na.rm = TRUE), .groups = "drop") %>%
+  mutate(
+    `% proteomes` = Proteomes / sum(Proteomes) * 100,
+    `% sequences` = Sequences / sum(Sequences) * 100
+  )
+
+pick <- function(df, origin, col) {
+  v <- df[[col]][df$Origin == origin]
+  if (length(v) == 0) 0 else v
+}
+N$transcr_seq_prop  <- pick(transcr, "transcriptome-derived", "% sequences")
+N$transcr_prot_prop <- pick(transcr, "transcriptome-derived", "% proteomes")
+
+show_tbl(euk_type_tbl, "Eukaryotic proteomes and sequences per data type.")
+show_tbl(transcr, "Transcriptome- vs. genome-derived eukaryotic proteomes.")
+```
+
+Eukaryotic proteins are mostly derived from transcriptomic data
+(**`r fmt_p(N$transcr_seq_prop)` of the proteins**,
+`r fmt_p(N$transcr_prot_prop)` of the proteomes).
+
+## Database footprint
+
+```{r n-footprint}
+if (!is.null(footprint) && nrow(footprint)) {
+  N$size_fasta <- footprint$Bytes[footprint$Artifact == "FASTA (gzipped)"]
+  show_tbl(select(footprint, Artifact, GB), "Disk footprint of the RepDB artifacts.")
+} else {
+  cat("> No RepDB artifacts were found when the bundle was built.\n")
+}
+```
+
+```{r n-buildtime}
+if (!is.null(bench_build)) {
+  show_tbl(bench_build,
+    "Build time and memory per step (snakemake benchmarks): `s` seconds, `h:m:s` wall time, `max_rss` peak RSS in MB.")
+} else {
+  cat("> No build benchmarks were found when the bundle was built.\n")
+}
+```
+
+# Taxonomic tree (Fig. 2)
+
+```{r tree-note, echo=FALSE, results="asis"}
+skip_note(HAVE_TREES,
+  "the reduced backbone trees were missing when the bundle was built. Build them (see the `obtain-reduced-prokatree` chunk in eda_prepare.Rmd) and re-run step 1. All the numbers above and below are unaffected.")
+skip_note(!HAVE_TREES || HAVE_TREE_PKGS,
+  "the trees are in the bundle but `ggtree` / `ggtreeExtra` / `ggnewscale` are not installed here. `install.packages(\"ggnewscale\")` and `BiocManager::install(c(\"ggtree\", \"ggtreeExtra\"))`.")
+```
+
+```{r fig1-params}
+tl <- 35.1 #  distance of type barplot
+x_lab <- 13.7 # distance of geomlabel
+min_x <- -15
+offsets <- c(0.75, 0.005) # c(0.575, 0.005)
+size_bar <- 2.75
+offset_tm <- 0.375
+```
+
+```{r fig1-data}
+repdb_summary <- repdb_df %>%
+  group_by(label) %>%
+  summarise(
+    n_seqs = sum(num_seqs, na.rm = TRUE),
+    n_gen  = n_distinct(mnemo),
+    .groups = "drop"
+  ) %>%
+  mutate(n_seqs_t = signif(n_seqs / 1e6, 2))
+
+type_df <- repdb_df %>%
+  count(label, type) %>%
+  mutate(type = factor(type, levels = rev(names(c(ass_palette, type_palette))))) %>%
+  group_by(label) %>%
+  arrange(type, .by_group = TRUE) %>%
+  mutate(
+    freq = n / sum(n),
+    ymax = tl + cumsum(freq),
+    ymin = lag(ymax, default = tl)
+  ) %>%
+  ungroup()
+```
+
+```{r fig1, eval=TREES}
+p1 <- eukaproka_tree %>%
+  fortify() %>%
+  left_join(repdb_summary, by = "label") %>%
+  ggtree(layout = "circular") +
+  geom_tiplab(size = 2.2, hjust = 0, color = "black") +
+  geom_label(
+    aes(angle = angle, label = n_seqs_t, fill = n_seqs,
+        x = max(fortify(eukaproka_tree)$x) + x_lab),
+    show.legend = F, size = 1.5, color = "white", hjust = 1, vjust = .5
+  ) +
+  scale_x_continuous(limits = c(min_x, NA)) +
+  scale_fill_viridis_c(trans = "log")
+
+p2 <- p1 +
+  ggnewscale::new_scale_fill() +
+  geom_fruit(
+    data = repdb_df, geom = geom_boxplot,
+    mapping = aes(y = label, x = contamination, group = label, fill = k),
+    orientation = "y", offset = offsets[1], size = .1,
+    outlier.size = 0.2, outlier.stroke = 0.08, pwidth = 0.1,
+    axis.params = list(axis = "x", text.size = 1, hjust = 1, vjust = 1, nbreak = 3),
+    grid.params = list()
+  ) +
+  geom_fruit(
+    data = repdb_df, geom = geom_boxplot,
+    mapping = aes(y = label, x = completeness, group = label, fill = k),
+    orientation = "y", offset = offsets[2], size = .1, pwidth = 0.1,
+    outlier.size = 0.2, outlier.stroke = 0.08,
+    axis.params = list(axis = "x", text.size = 1, hjust = 1, vjust = 1, nbreak = 3),
+    grid.params = list()
+  ) +
+  scale_fill_manual(values = color_kingdoms) +
+  ggnewscale::new_scale_fill() +
+  geom_fruit(
+    mapping = aes(y = label, xmin = ymin, xmax = ymax, color = type),
+    size = size_bar, data = type_df, geom = geom_linerange, show.legend = FALSE
+  ) +
+  scale_color_manual(values = c(ass_palette, type_palette)) +
+  theme(legend.position = "none")
+```
+
+```{r add-legend, eval=TREES}
+p_k <- color_kingdoms %>%
+  enframe() %>% mutate(y = 1) %>%
+  ggplot(aes(name, y, fill = value)) +
+  geom_tile() + scale_fill_identity() + coord_cartesian(ratio = 1) +
+  labs(subtitle = "Kingdom") + theme_legend
+
+p_type <- c(type_palette, ass_palette) %>%
+  enframe() %>% filter(name != "transcriptome,EST") %>%
+  mutate(y = 1, order = 1:nrow(.)) %>%
+  ggplot(aes(fct_reorder(name, order), y, fill = value)) +
+  geom_tile() + scale_fill_identity() + coord_cartesian(ratio = 1) +
+  labs(subtitle = "Data Type") + theme_legend
+
+p3 <- p2 + inset_element(p_k | p_type,
+  left = 0.1, bottom = -.05, right = 0.45, top = 0.16,
+  align_to = "full", clip = FALSE)
+```
+
+```{r add-treemap, eval=TREES}
+repdb_counts <- repdb_df %>%
+  group_by(k, label) %>%
+  summarise(n = sum(num_seqs, na.rm = TRUE), .groups = "drop")
+
+if (HAVE_TREEMAP) {
+  tm <- voronoiTreemap(
+    data = filter(repdb_counts, n > 10000),
+    levels = c("k", "label"), cell_size = "n", shape = "circle", seed = 123
+  )
+  pdf(NULL)
+  drawTreemap(tm,
+    label_size = 1, color_palette = color_kingdoms[unique(repdb_counts$k)],
+    label_color = "grey90", border_level = c(1, 2),
+    border_color = c("black", "grey20"), border_size = c(2, 0.5),
+    width = 0.8, height = 0.8)
+  p_tm <- grid::grid.grab()
+  dev.off()
+
+  p4 <- p3 + inset_element(p_tm,
+    left = offset_tm, bottom = offset_tm,
+    right = 1 - offset_tm, top = 1 - offset_tm,
+    align_to = "full", clip = FALSE) +
+    theme(plot.background = element_blank(), panel.background = element_blank())
+} else {
+  # the Voronoi inset needs WeightedTreemaps; the tree itself does not
+  message("WeightedTreemaps not installed - Fig. 2 is written without panel B")
+  p4 <- p3
+}
+
+```
+
+```{r fig1-show, eval=TREES, fig.width=11, fig.height=11}
+p4
+```
+
+# Viruses
+
+```{r n-viral-classes}
+viral_class <- virus_df %>%
+  group_by(`Viral class` = c) %>%
+  summarise(
+    Genomes   = n(),
+    Species   = n_distinct(s, na.rm = TRUE),
+    Sequences = sum(num_seqs, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    `% genomes`   = Genomes / sum(Genomes) * 100,
+    `% sequences` = Sequences / sum(Sequences) * 100
+  ) %>%
+  arrange(desc(Sequences))
+
+vc <- function(cls, col) {
+  v <- viral_class[[col]][viral_class$`Viral class` == cls]
+  if (length(v) == 0) NA else v
+}
+N$caudo_seq_prop <- vc("Caudoviricetes", "% sequences")
+N$caudo_species  <- vc("Caudoviricetes", "Species")
+N$mega_seq_prop  <- vc("Megaviricetes", "% sequences")
+N$mega_species   <- vc("Megaviricetes", "Species")
+N$vir_2nd        <- viral_class$`Viral class`[2]
+
+show_tbl(viral_class,
+  "Viral classes in RepDB, ranked by number of sequences (backs the Caudoviricetes / Megaviricetes figures in the text and Fig. S2).")
+```
+
+The dsDNA class **Caudoviricetes** is the most represented group
+(**`r fmt_p(N$caudo_seq_prop)` of the viral proteins** from
+**`r fmt_n(N$caudo_species)` different species**). The next most abundant group,
+**`r N$vir_2nd`**, represents `r fmt_p(N$mega_seq_prop)` of the viral proteins
+in RepDB despite deriving from just `r fmt_n(N$mega_species)` distinct species,
+a result of their large genome sizes.
+
+```{r n-virus-molecule}
+show_tbl(
+  virus_df %>%
+    mutate(Molecule_type = replace_na(Molecule_type, "unknown")) %>%
+    group_by(`Molecule type` = Molecule_type) %>%
+    summarise(Genomes = n(), Sequences = sum(num_seqs, na.rm = TRUE), .groups = "drop") %>%
+    mutate(
+      `% genomes` = Genomes / sum(Genomes) * 100,
+      `% sequences` = Sequences / sum(Sequences) * 100
+    ) %>%
+    arrange(desc(Genomes)),
+  "Viral genomes per molecule type (the Fig. S2 barplot)."
+)
+```
+
+## Viral tree (Fig. S2)
+
+```{r virtree, eval=TREES, fig.width=4.3, fig.height=4.5}
+virtype_df <- virus_df %>%
+  mutate(
+    Molecule_type = ifelse(is.na(Molecule_type), "unknown", Molecule_type),
+    Molecule_type = factor(Molecule_type, levels = names(virus_colors))
+  ) %>%
+  group_by(label, Molecule_type) %>%
+  summarise(n = n(), .groups = "drop_last") %>%
+  mutate(freq = n / sum(n)) %>%
+  ungroup()
+
+pvir1 <- virtree %>%
+  fortify() %>%
+  left_join(repdb_summary, by = "label") %>%
+  ggtree(size = .2) +
+  geom_tiplab(size = 2, hjust = 0, color = "grey20") +
+  geom_nodelab(size = 1, color = "firebrick", hjust = 1.1, vjust = -.7) +
+  geom_label(
+    aes(label = n_seqs, fill = n_seqs, x = max(fortify(virtree)$x + 3)),
+    show.legend = F, size = 1.5, color = "white", hjust = 1, vjust = .5
+  ) +
+  scale_fill_viridis_c(trans = "log")
+
+pvir2 <- pvir1 +
+  ggnewscale::new_scale_fill() +
+  geom_fruit(
+    data = virtype_df, geom = geom_bar, stat = "identity",
+    mapping = aes(y = label, x = freq, group = label, fill = Molecule_type),
+    orientation = "y", offset = .77, pwidth = .5,
+    axis.params = list(axis = "x", text.size = 1, hjust = 1, vjust = 1, nbreak = 3,
+      title = "Virus Type", title.size = 2, title.height = 0.04, title.color = "grey10")
+  ) +
+  geom_fruit(
+    data = filter(repdb_df, k == "Viruses"), geom = geom_boxplot,
+    mapping = aes(y = label, x = log10(num_seqs), group = label),
+    fill = color_kingdoms["Viruses"], orientation = "y", offset = 0.05,
+    size = .1, outlier.size = 0.2, outlier.stroke = 0.08, pwidth = 1,
+    axis.params = list(axis = "x", text.size = 1, hjust = 1, vjust = 1, nbreak = 5,
+      title = "log10(# Seqs)", title.size = 2, title.height = 0.04, title.color = "grey10"),
+    grid.params = list()
+  ) +
+  scale_fill_manual(values = virus_colors) +
+  labs(fill = "Molecule Type") +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(size = 5),
+    legend.key.size = unit(2, "mm"),
+    legend.text = element_text(size = 4, margin = margin(l = 0.1)),
+    legend.key.spacing.y = unit(0, "mm"),
+    legend.box.spacing = unit(0, "mm")
+  )
+
+pvir2
+```
+
+# Decontamination of eukaryotic proteomes (Fig. 3)
+
+```{r euk-df}
+euk_df <- repdb_df %>%
+  filter(k == "Eukaryota") %>%
+  mutate(
+    label = factor(label, levels = rev(p_order)),
+    db = factor(db, levels = c("custom", "uniprot", "eukprot", "p10k"))
+  ) %>%
+  replace_na(list(contamination = 0))
+
+N$n_euk_prot <- nrow(euk_df)
+N$n_euk_seqs <- sum(euk_df$num_seqs, na.rm = TRUE)
+```
+
+We evaluated the decontamination module across the **`r fmt_n(N$n_euk_prot)`**
+eukaryotic proteomes selected for RepDB.
+
+```{r n-contam-source}
+show_tbl(contam_check, "Source of the contaminant counts. The two rows should agree; if `repdb_meta.tsv` reports zero, it was written before the organism-id fix in `analyze_stats.R` and needs `make_db_meta` re-running. Step 1 uses the primary artifact either way.")
+```
+
+```{r n-contam-warn, echo=FALSE, results="asis"}
+n_file <- contam_check$`Flagged sequences`[1]
+n_meta <- contam_check$`Flagged sequences`[2]
+if (!HAVE_CONTAM_FILE) {
+  cat(sprintf("> **Note**: `%s` was not found when the bundle was built, so contamination falls back to the `repdb_meta.tsv` tally.\n\n", contam_file))
+} else if (isTRUE(n_meta == 0)) {
+  cat("> **Note**: `repdb_meta.tsv` reports zero contaminants for every organism - the symptom of the organism-id bug. The figures below are recomputed from `contaminants.txt` and are correct, but re-run `make_db_meta` so the published provenance table matches.\n\n")
+} else if (isTRUE(n_file != n_meta)) {
+  cat(sprintf("> **Note**: the two contaminant tallies disagree (%s vs %s). Using `contaminants.txt`.\n\n",
+              fmt_n(n_file), fmt_n(n_meta)))
+}
+if (sum(euk_df$contamination, na.rm = TRUE) == 0) {
+  cat("> **Warning**: every eukaryotic proteome has 0% contamination. That is not a plausible result - check `contaminants.txt` and the sequence-id format before using anything below.\n\n")
+}
+```
+
+## Contamination per source database (Fig. 3A)
+
+```{r n-cont-db}
+cont_db <- euk_df %>%
+  group_by(db) %>%
+  summarise(
+    n_prot  = n(),
+    n_conts = sum(n_conts, na.rm = TRUE),
+    n_tot   = sum(num_seqs, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(prop = n_conts / n_tot * 100)
+
+dbv <- function(d, col) {
+  v <- cont_db[[col]][as.character(cont_db$db) == d]
+  if (length(v) == 0) NA else v
+}
+for (d in c("eukprot", "p10k", "uniprot", "custom")) {
+  N[[paste0("cont_prop_", d)]] <- dbv(d, "prop")
+}
+N$n_conts_total <- sum(cont_db$n_conts, na.rm = TRUE)
+
+show_tbl(
+  cont_db %>%
+    transmute(Source = db, Proteomes = n_prot, Sequences = n_tot,
+              Contaminants = n_conts, `% contaminated` = prop) %>%
+    arrange(desc(`% contaminated`)),
+  "Flagged cross-kingdom contaminants per source database (Fig. 3A)."
+)
+```
+
+EukProt shows the highest fraction of putative contaminant sequences
+(**`r fmt_p(N$cont_prop_eukprot, 2)`**), P10K a lower one
+(**`r fmt_p(N$cont_prop_p10k, 2)`**) and UniProt the lowest
+(**`r fmt_p(N$cont_prop_uniprot, 2)`**). In total `r fmt_n(N$n_conts_total)`
+eukaryotic sequences are flagged.
+
+## Contamination per class (Fig. 3B)
+
+```{r n-cont-class}
+cont_class <- euk_df %>%
+  group_by(Class = as.character(label)) %>%
+  summarise(
+    Proteomes = n(),
+    `Median % contaminated` = median(contamination, na.rm = TRUE),
+    `Mean % contaminated`   = mean(contamination, na.rm = TRUE),
+    `Max % contaminated`    = max(contamination, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(`Median % contaminated`))
+
+N$worst_class     <- cont_class$Class[1]
+N$worst_class_med <- cont_class$`Median % contaminated`[1]
+
+show_tbl(head(cont_class, 25), "Eukaryotic classes ranked by median contamination (top 25).")
+```
+
+**`r N$worst_class`** is the most affected taxon, reaching a median
+contamination of **`r fmt_p(N$worst_class_med, 2)`**.
+
+## Contamination per data type
+
+```{r n-cont-type}
+cont_type <- euk_df %>%
+  group_by(`Data type` = type) %>%
+  summarise(
+    Proteomes = n(),
+    `Mean % contaminated`   = mean(contamination, na.rm = TRUE),
+    `Median % contaminated` = median(contamination, na.rm = TRUE),
+    `Max % contaminated`    = max(contamination, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(`Mean % contaminated`))
+
+tv <- function(ty) {
+  v <- cont_type$`Mean % contaminated`[cont_type$`Data type` == ty]
+  if (length(v) == 0) NA else v
+}
+N$cont_transcriptome    <- tv("Transcriptome")
+N$cont_genome           <- tv("Genome")
+N$cont_sc_transcriptome <- tv("S.C. transcriptome")
+N$cont_sc_genome        <- tv("S.C. genome")
+
+show_tbl(cont_type, "Contamination per data type (Fig. 3B colouring).")
+```
+
+Transcriptome-derived proteomes show higher contamination than genomic
+resources (**`r fmt_p(N$cont_transcriptome, 2)`** versus
+**`r fmt_p(N$cont_genome, 2)`** mean contamination); the trend reverses for
+single-cell approaches (`r fmt_p(N$cont_sc_transcriptome, 2)` for S.C.
+transcriptomes versus `r fmt_p(N$cont_sc_genome, 2)` for S.C. genomes).
+
+## Highly contaminated proteomes
+
+```{r n-cont-thresholds}
+thr <- c(1, 2.5, 5, 10, 20, 50)
+cont_thr <- tibble(
+  Threshold = paste0(">= ", thr, "%"),
+  Proteomes = map_int(thr, ~ sum(euk_df$contamination >= .x, na.rm = TRUE))
+) %>%
+  mutate(`% of eukaryotic proteomes` = Proteomes / N$n_euk_prot * 100)
+
+N$n_cont5  <- cont_thr$Proteomes[thr == 5]
+N$n_cont25 <- cont_thr$Proteomes[thr == 2.5]
+N$n_cont20 <- cont_thr$Proteomes[thr == 20]
+
+show_tbl(cont_thr, "Eukaryotic proteomes above each contamination threshold.")
+```
+
+```{r n-cont20-breakdown}
+above20 <- euk_df %>% filter(contamination > 20)
+
+N$n_above20 <- nrow(above20)
+N$n_above20_genome <- sum(grepl("genome", above20$type, ignore.case = TRUE))
+
+show_tbl(
+  above20 %>%
+    arrange(desc(contamination)) %>%
+    transmute(ID = mnemo, Source = as.character(db), Species = s,
+              Class = as.character(label), `Data type` = type,
+              Sequences = num_seqs, Contaminants = n_conts,
+              `% contaminated` = contamination),
+  "Every eukaryotic proteome with more than 20% flagged sequences."
+)
+```
+
+```{r n-cont20-text, echo=FALSE, results="asis"}
+if (N$n_above20 > 0) {
+  w <- which.max(above20$contamination)
+  cat(sprintf(
+    "**%s** proteomes have more than 20%% contamination, of which **%s** derive from genome assemblies. The most extreme case is **%s** (*%s*), with %s of its predicted proteins flagged as putative contaminants.\n",
+    fmt_n(N$n_above20), fmt_n(N$n_above20_genome),
+    above20$mnemo[w], above20$s[w], fmt_p(above20$contamination[w], 1)
+  ))
+} else {
+  cat("No eukaryotic proteome exceeds 20% contamination in this run.\n")
+}
+```
+
+## Co-occurrence of contaminants (Fig. 3D)
+
+`cooc_by_genus` is one row per (eukaryotic proteome, donor genus), where `n` is
+the number of **donor genomes** of that genus sharing a contaminant cluster with
+the proteome. It measures how *broadly* a genus co-occurs, and scales with how
+many genomes GTDB holds for it — fine for ranking clades within a proteome,
+which is what this panel does, but it is not a protein count. The case studies
+below use a per-protein attribution for the figures quoted in the text.
+
+```{r co-occurrence}
+# proteomes with at least 5% contaminated proteins
+interesting <- filter(euk_df, contamination >= 5)$mnemo
+
+top_coocs <- cooc_by_genus %>%
+  filter(euka %in% interesting, n > 5) %>%
+  group_by(euka) %>%
+  mutate(prop = n / sum(n), scaled_prop = scales::rescale(prop)) %>%
+  mutate(is_first = dense_rank(desc(n)) == 1) %>%
+  ungroup() %>%
+  left_join(tax, by = c("euka" = "mnemo"))
+
+top_1_cooc <- top_coocs %>%
+  group_by(euka) %>%
+  slice_max(order_by = scaled_prop, n = 1, with_ties = F) %>%
+  mutate(scaled_prop = 1.01) %>%
+  arrange(clade)
+```
+
+```{r n-cooc-genera}
+N$n_interesting <- length(interesting)
+
+cooc_genera <- top_1_cooc %>%
+  ungroup() %>%
+  count(`Donor kingdom` = donor_k, Genus = clade, name = "Proteomes") %>%
+  arrange(desc(Proteomes)) %>%
+  mutate(`% of affected proteomes` = Proteomes / N$n_interesting * 100)
+
+N$top_cooc_genera <- paste0("*", head(cooc_genera$Genus, 3), "*", collapse = ", ")
+
+show_tbl(head(cooc_genera, 20), sprintf(
+  "Most common putative contamination source: the genus with the highest co-occurrence in each of the %d eukaryotic proteomes with >=5%% flagged sequences (top 20). Co-occurrence is counted in donor genomes; see the note above.",
+  N$n_interesting))
+```
+
+At the genus level, **`r N$top_cooc_genera`**, in this order, are the most
+common sources of contaminants.
+
+```{r n-cooc-kingdom}
+show_tbl(
+  top_1_cooc %>%
+    ungroup() %>%
+    count(`Donor kingdom` = donor_k, name = "Proteomes") %>%
+    mutate(`%` = Proteomes / sum(Proteomes) * 100),
+  "Kingdom of the top co-occurring contaminant."
+)
+```
+
+### Case studies
+
+```{r n-case-studies}
+# EP01030 = Chromulinospumella sphaerica; P10K-NCBI-001938 = Paulinella micropora
+case_tbl <- cooc_case %>%
+  group_by(Proteome) %>%
+  mutate(`% of flagged` = `Flagged proteins` / sum(`Flagged proteins`) * 100) %>%
+  slice_max(`Flagged proteins`, n = 8) %>%
+  ungroup() %>%
+  arrange(Proteome, desc(`Flagged proteins`))
+
+show_tbl(case_tbl,
+  "Top putative donor clades for the two proteomes discussed in the text. `Flagged proteins` counts distinct flagged proteins of that proteome whose cluster contains the clade - the quantity the manuscript quotes. `Donor genomes` is how many genomes of the clade are in those clusters, shown alongside because ranking on it instead would measure GTDB's representation of the genus rather than the contamination.")
+```
+
+```{r n-case-text, echo=FALSE, results="asis"}
+case_line <- function(id) {
+  r <- euk_df %>% filter(mnemo == id)
+  top <- case_tbl %>% filter(Proteome == id) %>% slice_head(n = 1)
+  if (!nrow(r)) return(invisible(NULL))
+  cat(sprintf(
+    "- **%s** (*%s*, %s, %s): %s of %s proteins flagged (%s); top putative source *%s* (%s flagged proteins).\n",
+    id, r$s[1], r$db[1], r$type[1],
+    fmt_n(r$n_conts[1]), fmt_n(r$num_seqs[1]), fmt_p(r$contamination[1], 1),
+    if (nrow(top)) top$Genus[1] else NA,
+    if (nrow(top)) fmt_n(top$`Flagged proteins`[1]) else NA
+  ))
+}
+walk(unique(cooc_case$Proteome), case_line)
+```
+
+```{r cooc-plot}
+plot_cooc <- top_coocs %>%
+  mutate(s = factor(s, levels = unique(top_1_cooc$s))) %>%
+  ggplot(aes(scaled_prop, s)) +
+  geom_point(aes(color = is_first), pch = "|") +
+  geom_text(aes(label = clade), data = top_1_cooc, hjust = 0, size = 1.5) +
+  scale_x_continuous(expand = expansion(add = c(.025, .25)), breaks = seq(0, 1, .25)) +
+  scale_color_manual(values = c("grey60", "red")) +
+  labs(y = "", x = "Scaled prop. of Co-occurence") +
+  theme(legend.position = "none", axis.text.y = element_text(size = 5))
+```
+
+## Fig. 3
+
+```{r fig3, fig.width=9, fig.height=6}
+plot_cont_db <- cont_db %>%
+  ggplot(aes(n_conts, fct_reorder(db, n_conts), fill = db)) +
+  geom_col() +
+  geom_text(aes(
+    label = paste0(round(prop, 2), "%"),
+    hjust = ifelse(n_conts > 1e5, 1.1, -0.1),
+    color = ifelse(n_conts > 1e5, "white", "black")
+  )) +
+  labs(x = "# Contaminants", y = "DB") +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.05))) +
+  scale_color_identity() +
+  scale_fill_manual(values = color_dbs) +
+  theme(legend.position = "none")
+
+db_order <- cont_db %>% arrange(prop) %>% pull(db) %>% as.character()
+
+plot_type_db <- euk_df %>%
+  count(db, type) %>%
+  mutate(db = factor(db, levels = db_order)) %>%
+  ggplot(aes(n, db, fill = type)) +
+  geom_col(position = "fill") +
+  labs(x = "% Data Type", y = "") +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.05))) +
+  scale_fill_manual(values = type_palette) +
+  theme(legend.position = "none")
+
+plot_cont_prot <- euk_df %>%
+  ggplot(aes(contamination, fct_reorder(label, contamination, .na_rm = T))) +
+  geom_boxplot(aes(color = type), size = .2, outlier.size = .1) +
+  ggrepel::geom_text_repel(
+    data = . %>% filter(contamination > 20),
+    aes(label = g), size = 1.5, force = .1, box.padding = 0.1,
+    nudge_x = 1, nudge_y = .25,
+    segment.curvature = -0.1, segment.ncp = .3, segment.angle = 20
+  ) +
+  labs(x = "% Contaminated", y = "Eukaryotic class", color = "Data Type") +
+  guides(color = guide_legend(ncol = 1, byrow = TRUE,
+    override.aes = list(linewidth = .3, fill = "white"))) +
+  scale_color_manual(values = type_palette) +
+  theme(
+    axis.text.y = element_text(size = 7),
+    legend.text = element_text(size = 7),
+    legend.title = element_text(size = 7),
+    legend.key.spacing.y = unit(0, "mm"),
+    legend.key.spacing.x = unit(0, "mm"),
+    legend.key.size = unit(3, "mm"),
+    legend.key = element_rect(fill = "white"),
+    legend.background = element_rect(fill = "white"),
+    legend.position = c(0.75, 0.88)
+  )
+
+cont_left  <- (plot_cont_db / plot_cont_prot) + plot_layout(heights = c(1, 5))
+cont_right <- (plot_type_db / plot_cooc) + plot_layout(heights = c(1, 5))
+
+plot_cont <- (cont_left | cont_right) + plot_annotation(tag_levels = "A")
+plot_cont
+```
+
+# Comparison with nr and ClusteredNR (Fig. 4)
+
+```{r nr-note, echo=FALSE, results="asis"}
+skip_note(HAVE_NR,
+  "the NR taxid count tables were not reachable when the bundle was built. Produce them (see the `count-nr` chunk in eda_prepare.Rmd) and re-run step 1.")
+```
+
+```{r nr-derive, eval=HAVE_NR}
+# the repdb side only needs the bundle, so it is derived here rather than on the HPC
+repdb_classes <- repdb_df %>%
+  group_by(k, p, c) %>%
+  summarise(n = sum(num_seqs, na.rm = TRUE), .groups = "drop") %>%
+  mutate(db = "repdb")
+
+clustrepdb_classes <- clust_stats %>%
+  left_join(distinct(tax, k, p, c), by = "c") %>%
+  group_by(k, p, c) %>%
+  summarise(n = sum(num_seqs), .groups = "drop") %>%
+  mutate(db = "clustrepdb")
+
+size_df <- tibble(
+  db = c("nr", "clustnr", "repdb", "clustrepdb"),
+  n = c(nr_totals[["nr"]], nr_totals[["clustnr"]], N$n_seqs, N$n_clust)
+)
+
+reduction_repdb <- repdb_df %>%
+  group_by(c) %>%
+  summarise(num_seqs = sum(num_seqs, na.rm = TRUE), db = "repdb", .groups = "drop") %>%
+  bind_rows(select(clust_stats, c, num_seqs, db)) %>%
+  pivot_wider(names_from = db, values_from = num_seqs) %>%
+  mutate(db = "repdb", size = clust_repdb, reduction = repdb - clust_repdb,
+         prop_reduction = reduction / repdb) %>%
+  arrange(desc(prop_reduction)) %>%
+  left_join(distinct(tax, k, p, c), by = "c") %>%
+  select(-repdb, -clust_repdb)
+```
+
+## Database sizes (Fig. 4A)
+
+```{r n-db-sizes, eval=HAVE_NR}
+N$n_nr      <- size_df$n[size_df$db == "nr"]
+N$n_clustnr <- size_df$n[size_df$db == "clustnr"]
+N$repdb_vs_nr_frac      <- N$n_seqs / N$n_nr
+N$nr_clust_reduction    <- (N$n_nr - N$n_clustnr) / N$n_nr * 100
+N$repdb_clust_reduction <- (N$n_seqs - N$n_clust) / N$n_seqs * 100
+
+show_tbl(
+  size_df %>%
+    transmute(DB = db, Sequences = n, `Sequences (B)` = n / 1e9,
+              `% of nr` = n / N$n_nr * 100),
+  "Total number of sequences per database (Fig. 4A)."
+)
+```
+
+```{r n-db-sizes-text, eval=HAVE_NR, echo=FALSE, results="asis"}
+cat(sprintf(
+  "RepDB is substantially more compact than nr, including **%s as many sequences (%s versus %s)**. Clustering removes %s of nr but only %s of RepDB, and the two clustered databases end up at %s (ClusteredNR) and %s (ClusteredRepDB).\n",
+  paste0(fmt_d(1 / N$repdb_vs_nr_frac, 2), "x fewer"),
+  fmt_b(N$n_seqs), fmt_b(N$n_nr),
+  fmt_p(N$nr_clust_reduction), fmt_p(N$repdb_clust_reduction),
+  fmt_b(N$n_clustnr), fmt_b(N$n_clust)
+))
+```
+
+```{r n-ecoli, eval=HAVE_ECOLI}
+ecoli_tbl <- tibble(
+  DB = c("nr", "clustnr"),
+  `E. coli sequences` = c(ecoli_counts[["nr"]], ecoli_counts[["clustnr"]])
+) %>%
+  mutate(`% of DB` = `E. coli sequences` / c(N$n_nr, N$n_clustnr) * 100)
+
+N$ecoli_nr        <- ecoli_tbl$`E. coli sequences`[1]
+N$ecoli_clustnr   <- ecoli_tbl$`E. coli sequences`[2]
+N$ecoli_nr_prop   <- ecoli_tbl$`% of DB`[1]
+N$ecoli_reduction <- (N$ecoli_nr - N$ecoli_clustnr) / N$ecoli_nr * 100
+
+show_tbl(ecoli_tbl,
+  "The *E. coli* problem in nr: sequences assigned to any taxid under *Escherichia coli* (562).")
+```
+
+```{r n-ecoli-text, eval=HAVE_ECOLI, echo=FALSE, results="asis"}
+cat(sprintf(
+  "nr contains more than **%s** sequences from *Escherichia coli* strains (%s of the whole database); clustering removes %s of them, leaving %s.\n",
+  fmt_m(N$ecoli_nr, 1), fmt_p(N$ecoli_nr_prop, 2),
+  fmt_p(N$ecoli_reduction), fmt_n(N$ecoli_clustnr)
+))
+```
+
+## Taxonomic evenness (Fig. 4B)
+
+```{r n-gini, eval=HAVE_NR}
+gini_df <- bind_rows(nr_classes, clustnr_classes, repdb_classes, clustrepdb_classes) %>%
+  group_by(k, db) %>%
+  summarise(gini_index = gini(n), .groups = "drop")
+
+show_tbl(
+  gini_df %>%
+    pivot_wider(names_from = db, values_from = gini_index) %>%
+    rename(Kingdom = k) %>%
+    select(Kingdom, any_of(names(color_benchdbs))),
+  "Gini index of the class-level sequence distribution per kingdom and database (0 = perfectly even, 1 = maximally skewed).",
+  digits = 3
+)
+```
+
+## Where the redundancy is removed (Fig. 4C)
+
+```{r reduction-rank, eval=HAVE_NR}
+rank_reduction <- function(df) {
+  df %>%
+    filter(!is.na(reduction)) %>%
+    arrange(desc(reduction)) %>%
+    mutate(Rank = row_number(),
+           cum_reduction = cumsum(reduction),
+           cum_share = cum_reduction / sum(reduction, na.rm = TRUE) * 100)
+}
+rank_nr    <- rank_reduction(reduction_nr)
+rank_repdb <- rank_reduction(reduction_repdb)
+
+N$nr_top4_classes    <- paste(head(rank_nr$c, 4), collapse = ", ")
+N$nr_top4_share      <- rank_nr$cum_share[4]
+N$repdb_top4_classes <- paste(head(rank_repdb$c, 4), collapse = ", ")
+N$repdb_top4_share   <- rank_repdb$cum_share[4]
+N$repdb_top_prop_classes <- paste(head(arrange(reduction_repdb, desc(prop_reduction))$c, 3),
+                                  collapse = ", ")
+rank_of <- function(df, cls) {
+  i <- which(df$c == cls); if (length(i)) df$Rank[i[1]] else NA_integer_
+}
+N$rank_bacilli_repdb     <- rank_of(rank_repdb, "Bacilli")
+N$rank_bacteroidia_repdb <- rank_of(rank_repdb, "Bacteroidia")
+```
+
+```{r n-reduction-nr, eval=HAVE_NR}
+show_tbl(
+  rank_nr %>% head(15) %>%
+    transmute(Rank, Kingdom = k, Class = c, Removed = reduction,
+              `% reduced` = prop_reduction * 100,
+              `Cumulative % of all nr reduction` = cum_share),
+  "Classes contributing most to the redundancy clustering removes from nr (top 15)."
+)
+```
+
+```{r n-reduction-repdb-abs, eval=HAVE_NR}
+show_tbl(
+  rank_repdb %>% head(15) %>%
+    transmute(Rank, Kingdom = k, Phylum = p, Class = c, Removed = reduction,
+              `% reduced` = prop_reduction * 100,
+              `Cumulative % of all RepDB reduction` = cum_share),
+  "Classes contributing most to the redundancy clustering removes from RepDB (top 15)."
+)
+```
+
+```{r n-reduction-text, eval=HAVE_NR, echo=FALSE, results="asis"}
+cat(sprintf(
+  "In ClusteredNR, **%s** of the removed proteins belong to just four classes: %s. The top four in ClusteredRepDB account for **%s** (%s), with Bacilli ranking %s and Bacteroidia %s. Clustering removes %s of nr against %s of RepDB, so what differs between the two is the magnitude of the redundancy rather than where it sits.\n",
+  fmt_p(N$nr_top4_share), N$nr_top4_classes,
+  fmt_p(N$repdb_top4_share), N$repdb_top4_classes,
+  N$rank_bacilli_repdb, N$rank_bacteroidia_repdb,
+  fmt_p(N$nr_clust_reduction), fmt_p(N$repdb_clust_reduction)
+))
+```
+
+```{r n-reduction-repdb-rel, eval=HAVE_NR}
+show_tbl(
+  reduction_repdb %>%
+    arrange(desc(prop_reduction)) %>% head(15) %>%
+    transmute(Kingdom = k, Phylum = p, Class = c,
+              `Clustered size` = size, Removed = reduction,
+              `% reduced` = prop_reduction * 100),
+  "Most redundant RepDB classes in relative terms (top 15 by proportion of sequences removed)."
+)
+```
+
+The most significant reductions in relative terms occur in
+**`r if (HAVE_NR) N$repdb_top_prop_classes else "-"`**.
+
+```{r n-caudo-nr, eval=HAVE_NR}
+show_tbl(
+  nr_classes %>%
+    filter(k == "Viruses") %>%
+    mutate(Group = if_else(c == "Caudoviricetes", "Caudoviricetes", "other viruses")) %>%
+    group_by(Group) %>%
+    summarise(Sequences = sum(n), .groups = "drop") %>%
+    mutate(`% sequences` = Sequences / sum(Sequences) * 100),
+  "Caudoviricetes share of the viral sequences in nr (compare with the RepDB viral table above)."
+)
+```
+
+## Fig. 4
+
+```{r fig4, eval=HAVE_NR, fig.width=9, fig.height=3}
+plot_gini <- gini_df %>%
+  mutate(db = factor(db, levels = names(color_benchdbs))) %>%
+  ggplot(aes(db, gini_index, fill = k)) +
+  geom_line(aes(group = k), color = "grey40", linetype = 2) +
+  geom_point(pch = 21, size = 3) +
+  scale_fill_manual(values = color_kingdoms) +
+  scale_y_continuous(limits = c(0.65, 1)) +
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE, override.aes = list(size = 2))) +
+  theme(
+    legend.position = c(0.32, 0.15),
+    legend.key.spacing.y = unit(0, "mm"),
+    legend.key.spacing.x = unit(0, "mm"),
+    legend.key.size = unit(3, "mm"),
+    legend.key = element_rect(fill = "white"),
+    legend.background = element_rect(fill = "white"),
+    legend.text = element_text(size = 6, margin = unit(c(0, 0, 0, .25), "mm")),
+    legend.title = element_text(size = 7, margin = unit(c(0, 0, .5, 0), "mm"))
+  ) +
+  labs(x = "", y = "Gini Index", fill = "Kingdom")
+
+plot_reduction <- bind_rows(reduction_nr, reduction_repdb) %>%
+  ggplot(aes(prop_reduction, k)) +
+  ggbeeswarm::geom_quasirandom(pch = 21, aes(fill = k, size = size),
+                               stroke = .25, alpha = .75) +
+  ggrepel::geom_text_repel(
+    data = reduction_repdb %>% group_by(k) %>% top_n(3, prop_reduction),
+    aes(label = c), size = 1.5,
+    segment.curvature = -0.1, segment.ncp = 3, segment.angle = 10
+  ) +
+  facet_wrap(~db, scales = "free_x") +
+  labs(x = "% Reduced", y = "") +
+  scale_size(range = c(.5, 5)) +
+  scale_fill_manual(values = color_kingdoms) +
+  theme(legend.position = "none")
+
+plot_size <- size_df %>%
+  mutate(clustered = grepl("clust", db), db = gsub("clust", "", db)) %>%
+  ggplot(aes(db, n, fill = db, alpha = clustered)) +
+  geom_col(position = "dodge") +
+  scale_alpha_manual(values = c(1, 0.5)) +
+  scale_fill_manual(values = color_benchdbs) +
+  scale_y_continuous(expand = c(0, 0.05),
+                     labels = scales::unit_format(unit = "B", scale = 1e-9)) +
+  labs(x = "", y = "N") +
+  theme(legend.position = "none")
+
+plot_red <- plot_size + plot_gini + plot_reduction +
+  plot_layout(widths = c(1, 3.7, 7)) +
+  plot_annotation(tag_levels = "A")
+
+plot_red
+```
+
+# Exploratory
+
+```{r euka-cooc}
+show_tbl(
+  euka_cooc %>%
+    arrange(desc(n)) %>%
+    transmute(`Proteome A` = q, `Phylum A` = p.x,
+              `Proteome B` = t, `Phylum B` = p.y, `Co-occurrence` = n) %>%
+    head(20),
+  sprintf("Eukaryote-eukaryote co-occurrence across phyla (top 20 of %s pairs above the step-1 threshold of %s).",
+          fmt_n(nrow(euka_cooc)), fmt_n(bundle_meta$params$euka_cooc_min))
+)
+```
+
+```{r viral-cooc}
+show_tbl(head(viral_cooc, 20), "Viral classes co-occurring with non-viral clades (top 20).")
+```
+
+```{r viral-cooc-megavir}
+show_tbl(head(viral_cooc_megavir, 20), "Megaviricetes co-occurring with Diaphoretickes (top 20).")
+```
+
+# Manuscript number checklist
+
+Every value the Results section quotes, recomputed from this run. The
+*Manuscript* column is the figure as written in the current draft
+(`test/review/Repdb_1strev.md`) - it is a static reminder, not a computed value,
+so a mismatch means the sentence needs updating.
+
+```{r checklist, echo=FALSE}
+g <- function(key, fmt = fmt_n, ...) {
+  v <- N[[key]]
+  if (is.null(v) || length(v) != 1L) return("not computed")
+  if (is.character(v)) return(v)
+  if (!is.finite(v)) return("not computed")
+  fmt(v, ...)
+}
+
+checklist <- tribble(
+  ~Claim, ~Manuscript, ~`This run`,
+  "Total sequences",                        "482M",        g("n_seqs", fmt_m, 0),
+  "Bacteria: sequences / proteomes",        "424M / 136,646", paste(g("n_seqs_Bacteria", fmt_m, 0), "/", g("n_prot_Bacteria")),
+  "Eukaryota: sequences / proteomes",       "44.5M / 1,561",  paste(g("n_seqs_Eukaryota", fmt_m, 1), "/", g("n_prot_Eukaryota")),
+  "Archaea: sequences / proteomes",         "13M / 6,968",    paste(g("n_seqs_Archaea", fmt_m, 0), "/", g("n_prot_Archaea")),
+  "Viruses: sequences / proteomes",         "0.7M / 14,870",  paste(g("n_seqs_Viruses", fmt_m, 1), "/", g("n_prot_Viruses")),
+  "Three most abundant clades",             "Pseudomonadota, Actinomycetota, Bacillota", g("top_clades"),
+  "Bacteria completeness (mean±SD)",        "91.7±9.8%",   g("compl_Bacteria"),
+  "Bacteria contamination (mean±SD)",       "1.4±1.6%",    g("cont_Bacteria"),
+  "Archaea completeness (mean±SD)",         "87.3±10.9%",  g("compl_Archaea"),
+  "Archaea contamination (mean±SD)",        "1.3±1.6%",    g("cont_Archaea"),
+  "Eukaryota completeness (mean±SD)",       "66.5±27.9%",  g("compl_Eukaryota"),
+  "Eukaryota contamination (mean±SD)",      "0.7±3.4%",    g("cont_Eukaryota"),
+  "Prokaryotes at contig level",            "66.8%",       g("proka_top_prop", fmt_p),
+  "Eukaryotic proteins from transcriptomes", "60.3%",      g("transcr_seq_prop", fmt_p),
+  "Caudoviricetes share of viral proteins", "80.5%",       g("caudo_seq_prop", fmt_p),
+  "Caudoviricetes species",                 "5,019",       g("caudo_species"),
+  "Megaviricetes share of viral proteins",  "5.7%",        g("mega_seq_prop", fmt_p),
+  "Megaviricetes species",                  "89",          g("mega_species"),
+  "Eukaryotic proteomes evaluated",         "1,561",       g("n_euk_prot"),
+  "EukProt contaminant fraction",           "1.46%",       g("cont_prop_eukprot", fmt_p, 2),
+  "P10K contaminant fraction",              "0.30%",       g("cont_prop_p10k", fmt_p, 2),
+  "UniProt contaminant fraction",           "0.13%",       g("cont_prop_uniprot", fmt_p, 2),
+  "Most affected taxon (median cont.)",     "Anaeramoebidae, 2.93%", paste0(g("worst_class"), ", ", g("worst_class_med", fmt_p, 2)),
+  "Transcriptome mean contamination",       "0.87%",       g("cont_transcriptome", fmt_p, 2),
+  "Genome mean contamination",              "0.62%",       g("cont_genome", fmt_p, 2),
+  "S.C. transcriptome mean contamination",  "0.33%",       g("cont_sc_transcriptome", fmt_p, 2),
+  "S.C. genome mean contamination",         "1.31%",       g("cont_sc_genome", fmt_p, 2),
+  "Proteomes >20% contamination",           "11",          g("n_above20"),
+  "...of which genome-derived",             "8",           g("n_above20_genome"),
+  "Proteomes >=5% contamination (Fig. 3D)", "60",          g("n_interesting"),
+  "Top contaminant source genera",          "Pseudomonas_E, Vibrio, Marinobacter", g("top_cooc_genera"),
+  "RepDB vs nr size",                       "0.48B vs 1.69B", paste(g("n_seqs", fmt_b), "vs", g("n_nr", fmt_b)),
+  "E. coli sequences in nr",                "52.2M",       g("ecoli_nr", fmt_m, 1),
+  "nr reduced by clustering",               "72.2%",       g("nr_clust_reduction", fmt_p),
+  "RepDB reduced by clustering",            "23.8%",       g("repdb_clust_reduction", fmt_p),
+  "ClusteredNR: share removed by top 4 classes", "61.8%",  g("nr_top4_share", fmt_p),
+  "ClusteredNR: those four classes",        "Gammaproteobacteria, Actinomycetes, Bacilli, Alphaproteobacteria", g("nr_top4_classes"),
+  "ClusteredRepDB: share removed by top 4 classes", "58.3%", g("repdb_top4_share", fmt_p),
+  "ClusteredRepDB: those four classes",     "Gammaproteobacteria, Actinomycetes, Alphaproteobacteria, Bacteroidia", g("repdb_top4_classes"),
+  "ClusteredRepDB: rank of Bacilli",        "6th",         g("rank_bacilli_repdb"),
+  "Largest relative reductions in RepDB",   "Coriobacteriia, Parabasalia, Caudoviricetes", g("repdb_top_prop_classes"),
+  "RepDB gzipped FASTA size",               "86GB",        g("size_fasta", fmt_gb)
+)
+
+show_tbl(checklist, "Draft claims vs. this run. `not computed` means the section producing it was skipped (missing input).")
+```
+
+The Fig. 5 numbers come from `comparison.Rmd`, not from this notebook.
+
+# Figures written to disk
+
+```{r comparison-panel}
+have_rds <- function(p) !is.null(p) && nzchar(p) && file.exists(.rp(p))
+if (have_rds(params$comparison_rds)) {
+  plot_cohen <- readRDS(.rp(params$comparison_rds)) + plot_annotation(tag_levels = "A")
+} else {
+  message("comparison.Rds not found; run comparison.Rmd first to include Fig. 5")
+}
+if (have_rds(params$recall_rds)) {
+  recall_plot <- readRDS(.rp(params$recall_rds))
+} else {
+  message("recall.RDS not found; Fig. S1 will not be written")
+}
+```
+
+```{r save-fig-paper}
+save_if <- function(name, obj, ...) {
+  if (exists(obj, inherits = TRUE)) {
+    ggsave(fig(name), get(obj, inherits = TRUE), ...)
+    tibble(Figure = name, Status = "written")
+  } else {
+    tibble(Figure = name, Status = sprintf("skipped (`%s` not available)", obj))
+  }
+}
+
+show_tbl(
+  bind_rows(
+    save_if("Fig2.pdf", "p4", width = 11, height = 11),
+    save_if("Fig3.pdf", "plot_cont", width = 9, height = 6),
+    save_if("Fig4.pdf", "plot_red", height = 3, width = 9),
+    save_if("Fig5.pdf", "plot_cohen", width = 6.5, height = 4.5),
+    save_if("FigS1.pdf", "recall_plot", width = 4, height = 4),
+    save_if("FigS2.pdf", "pvir2", width = 4.3, height = 4.5)
+  ),
+  sprintf("Figures written to `%s`.", figdir)
+)
+```
+
+# Session info
+
+```{r session-info}
+sessionInfo()
+```

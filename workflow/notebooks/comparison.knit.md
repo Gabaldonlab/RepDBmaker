@@ -1,6 +1,6 @@
 ---
 title: "RepDB vs nr: search cost, coverage and taxonomic resolution"
-date: "`r format(Sys.time(), '%d-%b-%Y')`"
+date: "08-Sep-2026"
 author: "Giacomo Mutti"
 output:
     rmdformats::html_clean:
@@ -34,15 +34,10 @@ Render from the repository root:
 directory before it forces `output_file`.)
 -->
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, cache = FALSE, warning = FALSE, message = FALSE)
-if (nzchar(Sys.which("pdfcrop"))) {
-  knitr::knit_hooks$set(crop = knitr::hook_pdfcrop)
-  knitr::opts_chunk$set(crop = TRUE)
-}
-```
 
-```{r libs}
+
+
+``` r
 suppressPackageStartupMessages({
   library(tidyverse)
   library(patchwork)
@@ -56,7 +51,8 @@ theme_set(theme_classic(base_size = 9))
 .src("workflow/scripts/palettes.R")
 ```
 
-```{r paths}
+
+``` r
 P <- as.list(params)
 res <- function(...) rp(file.path(P$results, ...))
 rsc <- function(...) rp(file.path(P$resources, ...))
@@ -148,7 +144,8 @@ end up with a `_lca.tsv` left over from an earlier sample while the `_report`
 next to it is current — the two disagree silently and every downstream
 "unclassified" number is then wrong.
 
-```{r validate}
+
+``` r
 fa <- readLines(res("comparison", "input.fa"), warn = FALSE)
 query_ids <- sub(" .*", "", sub("^>", "", fa[startsWith(fa, ">")]))
 N$n_queries <- length(query_ids)
@@ -203,17 +200,25 @@ FULL_LCA <- setequal(LCA_DBS, unique(lca_all$db))
 show_tbl(validation, sprintf("Consistency of each result file with the %s queries in `input.fa`.", fmt_n(N$n_queries)), digits = 1)
 ```
 
-```{r validate-note, echo=FALSE, results="asis"}
-if (!FULL_LCA) {
-  cat(sprintf(
-    "> **Warning**: the per-transcript `_lca.tsv` is stale for **%s**. The aggregate `_report` files are current for all databases, so the figure panels, the coverage numbers and the resolution profile below use *all four* databases. The analyses that need a per-transcript assignment (agreement with the reference, the gap decomposition) are restricted to **%s**. Re-run `mmseqs easy-taxonomy` (or re-copy the outputs) for the stale databases to complete them.\n\n",
-    paste(setdiff(unique(lca_all$db), LCA_DBS), collapse = ", "),
-    paste(LCA_DBS, collapse = ", ")
-  ))
-}
-```
 
-```{r read-rest}
+
+Table: Consistency of each result file with the 20,000 queries in `input.fa`.
+
+|db         |File     |   Rows| Matching current input| % current|Status |
+|:----------|:--------|------:|----------------------:|---------:|:------|
+|clustnr    |_lca.tsv | 20,000|                 20,000|       100|OK     |
+|clustrepdb |_lca.tsv | 20,000|                 20,000|       100|OK     |
+|nr         |_lca.tsv | 20,000|                 20,000|       100|OK     |
+|repdb      |_lca.tsv | 20,000|                 20,000|       100|OK     |
+|clustnr    |_report  | 20,000|                     NA|        NA|OK     |
+|clustrepdb |_report  | 20,000|                     NA|        NA|OK     |
+|nr         |_report  | 20,000|                     NA|        NA|OK     |
+|repdb      |_report  | 20,000|                     NA|        NA|OK     |
+
+
+
+
+``` r
 # DIAMOND hits: only the columns needed, the files are ~150-190 MB each
 hits <- map_dfr(
   list.files(res("comparison", "hits"), pattern = "matches.tsv", full.names = TRUE),
@@ -246,10 +251,10 @@ N$n_ref_unclassified <- sum(is.na(ref$ref_taxon) | ref$ref_taxon == "unclassifie
 N$n_ref_ambiguous <- sum(ref$ambiguous == 1, na.rm = TRUE)
 ```
 
-The query set is **`r fmt_n(N$n_queries)` predicted proteins** randomly sampled
-from the western North Atlantic metatranscriptome of `r REF_LONG`.
+The query set is **20,000 predicted proteins** randomly sampled
+from the western North Atlantic metatranscriptome of Cohen et al. (2024).
 
-Throughout, the comparator labelled **`r REF`** is *the taxonomic annotation
+Throughout, the comparator labelled **Cohen2024** is *the taxonomic annotation
 published by that study*, not a database we queried. It is often referred to as
 "PhyloDB", but the annotation was produced with a PhyloDB-derived reference set
 augmented with additional references and RefSeq, and its own LCA procedure and
@@ -261,7 +266,8 @@ resolution profile below is the informative comparison.
 
 ## A - Search cost
 
-```{r benchmarks}
+
+``` r
 bench <- list.files(res("benchmarks", "comparison"), full.names = TRUE, pattern = "\\.txt$") %>%
   map_dfr(~ read_delim(.x, delim = "\t", show_col_types = FALSE, progress = FALSE) %>%
     mutate(tag = str_remove(basename(.x), "\\.txt$"))) %>%
@@ -283,7 +289,24 @@ show_tbl(
   cost %>% rename(Tool = tool, DB = db, `Runtime (min)` = minutes, `Peak RSS (GB)` = mem_gb),
   "Wall time and peak memory of the homology search / taxonomic assignment on the full query set."
 )
+```
 
+
+
+Table: Wall time and peak memory of the homology search / taxonomic assignment on the full query set.
+
+|Tool    |DB         | Runtime (min)| Peak RSS (GB)|
+|:-------|:----------|-------------:|-------------:|
+|DIAMOND |nr         |          42.8|          14.0|
+|DIAMOND |clustnr    |          16.1|          10.4|
+|DIAMOND |repdb      |          22.7|           8.7|
+|DIAMOND |clustrepdb |          18.3|           7.7|
+|MMseqs2 |nr         |         103.6|         107.2|
+|MMseqs2 |clustnr    |          34.1|         108.7|
+|MMseqs2 |repdb      |          45.6|         108.7|
+|MMseqs2 |clustrepdb |          25.4|          77.3|
+
+``` r
 ratio <- cost %>%
   filter(db %in% c("nr", "repdb")) %>%
   pivot_wider(names_from = db, values_from = c(minutes, mem_gb)) %>%
@@ -310,7 +333,20 @@ show_tbl(
   ),
   "Ratios (>1 means RepDB is faster / leaner).", digits = 2
 )
+```
 
+
+
+Table: Ratios (>1 means RepDB is faster / leaner).
+
+|Comparison                    |Tool    | Runtime speedup| Memory reduction|
+|:-----------------------------|:-------|---------------:|----------------:|
+|RepDB vs nr                   |DIAMOND |            1.89|             1.61|
+|RepDB vs nr                   |MMseqs2 |            2.27|             0.99|
+|ClusteredRepDB vs ClusteredNR |DIAMOND |            0.88|             1.35|
+|ClusteredRepDB vs ClusteredNR |MMseqs2 |            1.34|             1.41|
+
+``` r
 # A and B suppress their keys and D carries the single collected legend, so the
 # fill scale here never has to merge with D's colour scale
 plot_bench <- bench %>%
@@ -326,17 +362,18 @@ plot_bench <- bench %>%
   thm + theme(legend.position = "none")   # the shared key lives on panel D
 ```
 
-Against nr, RepDB is **`r fmt_x(N$speed_dmnd)` faster for DIAMOND** and
-**`r fmt_x(N$speed_mmseqs)` faster for MMseqs2**. DIAMOND memory drops
-`r fmt_x(N$mem_dmnd)`, but MMseqs2 peak memory is essentially unchanged
-(`r fmt_d(N$mem_mmseqs_repdb, 0)` GB vs `r fmt_d(N$mem_mmseqs_nr, 0)` GB): the
+Against nr, RepDB is **1.89x faster for DIAMOND** and
+**2.27x faster for MMseqs2**. DIAMOND memory drops
+1.61x, but MMseqs2 peak memory is essentially unchanged
+(109 GB vs 107 GB): the
 `easy-taxonomy` prefilter sizes its working set to the available RAM rather than
 to the database, so database size does not translate into a memory saving there.
 Clustering is what reduces it (see the table above).
 
 ## B - Homology search results
 
-```{r diamond}
+
+``` r
 best <- hits %>%
   group_by(db, qseqid) %>%
   slice_max(pident, n = 1, with_ties = FALSE) %>%
@@ -359,7 +396,20 @@ N$hit_nr    <- coverage$`% of queries`[coverage$db == "nr"]
 N$nohit_repdb <- N$n_queries - coverage$`Queries with a hit`[coverage$db == "repdb"]
 
 show_tbl(coverage, "DIAMOND homology search: how many of the queries each database can place at all.")
+```
 
+
+
+Table: DIAMOND homology search: how many of the queries each database can place at all.
+
+|db         |      Hits| Queries with a hit| % of queries| Hits per query| Median identity| Median coverage|
+|:----------|---------:|------------------:|------------:|--------------:|---------------:|---------------:|
+|nr         | 1,449,985|             17,811|         89.1|           81.4|            60.5|            89.5|
+|clustnr    | 1,413,589|             17,841|         89.2|           79.2|            57.4|            88.6|
+|repdb      | 1,579,187|             19,243|         96.2|           82.1|            60.4|            89.2|
+|clustrepdb | 1,554,358|             19,247|         96.2|           80.8|            58.4|            88.7|
+
+``` r
 plot_dmnd <- best %>%
   select(db, pident, qcovhsp) %>%
   pivot_longer(c(pident, qcovhsp)) %>%
@@ -376,11 +426,12 @@ plot_dmnd <- best %>%
   thm + theme(legend.position = "none")   # the shared key lives on panel D
 ```
 
-**RepDB finds a homolog for `r fmt_p(N$hit_repdb)` of the queries against nr's
-`r fmt_p(N$hit_nr)`**, despite being roughly a third of the size. Only
-`r fmt_n(N$nohit_repdb)` queries have no RepDB homolog at all.
+**RepDB finds a homolog for 96.2% of the queries against nr's
+89.1%**, despite being roughly a third of the size. Only
+757 queries have no RepDB homolog at all.
 
-```{r identity-bands}
+
+``` r
 id_bands <- function(d) {
   d %>%
     mutate(band = cut(pident, c(0, 30, 50, 70, 90, 100),
@@ -406,28 +457,56 @@ for (d in DB_LEVELS[DB_LEVELS %in% names(bands_all)]) {
 }
 
 show_tbl(bands, "Identity of the **best hit per query** (% of queries with a hit). This is what Fig. 5B shows.")
+```
+
+
+
+Table: Identity of the **best hit per query** (% of queries with a hit). This is what Fig. 5B shows.
+
+|band  |   nr| clustnr| repdb| clustrepdb|
+|:-----|----:|-------:|-----:|----------:|
+|<30   |  0.5|     0.5|   0.3|        0.2|
+|30-50 | 18.2|    17.9|  11.4|       11.1|
+|50-70 | 27.6|    27.8|  28.4|       28.5|
+|70-90 | 22.1|    23.5|  28.4|       29.6|
+|>90   | 31.6|    30.3|  31.6|       30.6|
+
+``` r
 show_tbl(bands_all, "Identity of **all hits** (% of hits). Clustering is visible here rather than in the best-hit view: a query's best hit is usually retained as a cluster representative, so removing near-identical redundancy barely moves the best-hit distribution but strips most of the >90% identity hits from the full output.")
 ```
 
-RepDB's best hits are *closer*: `r fmt_p(N$lowid_repdb)` fall below 50% identity
-versus `r fmt_p(N$lowid_nr)` for nr, and `r fmt_p(N$midid_repdb)` lie between 70%
-and 90% versus `r fmt_p(N$midid_nr)`. Query coverage, by contrast, is
+
+
+Table: Identity of **all hits** (% of hits). Clustering is visible here rather than in the best-hit view: a query's best hit is usually retained as a cluster representative, so removing near-identical redundancy barely moves the best-hit distribution but strips most of the >90% identity hits from the full output.
+
+|band  |   nr| clustnr| repdb| clustrepdb|
+|:-----|----:|-------:|-----:|----------:|
+|<30   |  2.6|     2.8|   2.0|        2.1|
+|30-50 | 30.9|    33.6|  30.0|       31.8|
+|50-70 | 29.9|    35.4|  33.2|       36.1|
+|70-90 | 25.3|    24.5|  24.2|       24.4|
+|>90   | 11.3|     3.7|  10.6|        5.5|
+
+RepDB's best hits are *closer*: 11.6% fall below 50% identity
+versus 18.8% for nr, and 28.4% lie between 70%
+and 90% versus 22.1%. Query coverage, by contrast, is
 indistinguishable between the two.
 
 Across **all** hits, clustering strips the high-identity redundancy as intended:
-hits above 90% identity fall from `r fmt_p(N$hi90_nr)` to `r fmt_p(N$hi90_clustnr)`
-of the total in ClusteredNR, and from `r fmt_p(N$hi90_repdb)` to
-`r fmt_p(N$hi90_clustrepdb)` in ClusteredRepDB.
+hits above 90% identity fall from 11.3% to 3.7%
+of the total in ClusteredNR, and from 10.6% to
+5.5% in ClusteredRepDB.
 
 ## C - What happened to every query
 
 Panels B and D describe the queries a database *does* place. This one accounts
 for all of them, so the coverage rate, the agreement rate and the reason a
 transcript ends up unlabelled can be read off a single decomposition. It is
-restricted to the queries `r REF` itself placed in a domain, so every category
+restricted to the queries Cohen2024 itself placed in a domain, so every category
 shares one denominator.
 
-```{r outcome}
+
+``` r
 # lineages rebuilt from the depth-indented report, so an LCA taxid resolves to a
 # domain without needing the taxdump
 lineage_of <- function(rep) {
@@ -480,7 +559,20 @@ show_tbl(
   sprintf("What happened to each of the %s queries %s placed in a domain (%% of that set).",
           fmt_n(n_distinct(outcome$seq)), REF)
 )
+```
 
+
+
+Table: What happened to each of the 19,503 queries Cohen2024 placed in a domain (% of that set).
+
+|DB         | Agrees with Cohen2024| Assigned, differs| Homolog, no LCA| No homolog|
+|:----------|---------------------:|-----------------:|---------------:|----------:|
+|clustnr    |                  74.9|               3.0|            12.8|        9.3|
+|clustrepdb |                  84.8|               1.9|             9.8|        3.4|
+|nr         |                  74.9|               3.1|            12.6|        9.4|
+|repdb      |                  84.5|               1.7|            10.3|        3.5|
+
+``` r
 plot_outcome <- outcome_tbl %>%
   mutate(db = factor(db, levels = DB_LEVELS),
          outcome = factor(outcome, levels = rev(OUTCOMES))) %>%
@@ -496,7 +588,8 @@ plot_outcome <- outcome_tbl %>%
 
 ## Kingdom composition (supplementary)
 
-```{r kingdoms}
+
+``` r
 ref_kingdom <- ref %>%
   mutate(nm = replace_na(ref_domain, "unclassified")) %>%
   count(nm) %>% mutate(db = REF)
@@ -526,7 +619,8 @@ Resolution is what makes the comparison with the reference annotation
 interpretable: the raw count of labelled transcripts says nothing about how
 deeply they were labelled.
 
-```{r resolution}
+
+``` r
 # the four databases use different rank vocabularies (nr carries the full NCBI
 # set, RepDB a compact 7-rank taxdump, the reference a PhyloDB-derived scheme).
 # Fold
@@ -579,7 +673,24 @@ res_tbl <- profile %>%
   rename(`Rank or finer` = cr)
 
 show_tbl(res_tbl, "Cumulative percentage of the query set assigned at each rank *or finer*. Read down: the reference labels almost everything, but very little of it deeply.")
+```
 
+
+
+Table: Cumulative percentage of the query set assigned at each rank *or finer*. Read down: the reference labels almost everything, but very little of it deeply.
+
+|Rank or finer | Cohen2024| clustnr| clustrepdb|   nr| repdb|
+|:-------------|---------:|-------:|----------:|----:|-----:|
+|species       |       2.4|    39.2|       42.8| 31.4|  35.2|
+|genus         |      10.3|    42.3|       51.9| 35.5|  50.7|
+|family        |      26.6|    46.5|       66.9| 39.8|  66.3|
+|order         |      46.7|    51.0|       70.3| 45.0|  69.7|
+|class         |      72.9|    57.6|       73.3| 52.8|  73.2|
+|phylum        |      81.5|    62.0|       79.5| 59.7|  79.2|
+|kingdom       |      97.5|    63.5|         NA| 61.5|    NA|
+|domain        |        NA|    72.5|       86.2| 72.4|  85.7|
+
+``` r
 pv <- function(d, r) {
   v <- profile$cum[profile$db == d & profile$cr == r]
   if (length(v) == 0) NA else v
@@ -623,13 +734,14 @@ plot_res <- profile %>%
 ```
 
 At **family level or finer** — the deepest rank where the reference's and the
-NCBI/UniEuk vocabularies mean the same thing — RepDB places **`r fmt_p(N$fam_repdb)`** of the
-queries, nr `r fmt_p(N$fam_nr)`, and the reference annotation only
-`r fmt_p(N$fam_ref)`.
+NCBI/UniEuk vocabularies mean the same thing — RepDB places **66.3%** of the
+queries, nr 39.8%, and the reference annotation only
+26.6%.
 
 ## Assembled figure
 
-```{r fig5, fig.width=7.5, fig.height=6.19}
+
+``` r
 # same shape as the original figure - the two cost/quality panels stacked on the
 # left, the taxonomy panels to the right - with A and B given less width now that
 # there are four panels. A and B carry no key of their own; the collected legends
@@ -685,10 +797,12 @@ ggsave(fig("Fig5.pdf"), plot_comp, width = 7.5, height = 6.19)
 plot_comp
 ```
 
-*A) Wall time and peak memory of the search on `r fmt_n(N$n_queries)` predicted
+<img src="/Users/gmutti/Desktop/projects/RepDBmaker/results/qc/comparison_files/figure-html/fig5-1.png" alt="" width="720" />
+
+*A) Wall time and peak memory of the search on 20,000 predicted
 proteins; the grey line joins each database to its clustered version. B) Identity
 and query coverage of the best DIAMOND hit per query. C) Outcome of every query
-`r REF` placed in a domain: whether the database agreed with the reference
+Cohen2024 placed in a domain: whether the database agreed with the reference
 at domain level, assigned a different domain, found a homolog without resolving
 an LCA, or found no homolog at all. D) Cumulative percentage of queries assigned at each rank or finer,
 over the range where the reference, NCBI and UniEuk/GTDB rank vocabularies
@@ -699,8 +813,8 @@ correspond.*
 The reference annotation labels more transcripts than RepDB does, which invites
 the reading that RepDB's downsampling has removed sequences needed to annotate
 environmental data. It has not: RepDB is ~3.5x smaller than nr and still finds
-a homolog for more of the queries (`r fmt_p(N$hit_repdb)` against
-`r fmt_p(N$hit_nr)`, table in section B above). The difference is in what
+a homolog for more of the queries (96.2% against
+89.1%, table in section B above). The difference is in what
 "classified" means on each side, and the sections below take that apart.
 
 ## 1. What "unclassified" actually means
@@ -710,7 +824,8 @@ database* (a genuine coverage gap) and *homologs exist but the LCA declined to
 commit to a taxon* (a property of the LCA over a taxonomically broad database).
 Splitting them separates a genuine coverage gap from an algorithmic artifact.
 
-```{r n-unclassified-reason}
+
+``` r
 UNINFORMATIVE <- c("unclassified", "root", "cellular organisms")
 
 has_hit <- hits %>% distinct(db, qseqid) %>%
@@ -738,7 +853,22 @@ N$lca_artifact_pct <- reason_tbl$`% of unresolved`[
 show_tbl(reason_tbl, "Why a transcript ends up without a taxonomic label. DIAMOND and MMseqs2 use different thresholds, so 'homolog found' is a proxy.")
 ```
 
-For RepDB, **`r fmt_p(N$lca_artifact_pct)` of unresolved transcripts do have a
+
+
+Table: Why a transcript ends up without a taxonomic label. DIAMOND and MMseqs2 use different thresholds, so 'homolog found' is a proxy.
+
+|db         |Reason                            | Transcripts| % of unresolved|
+|:----------|:---------------------------------|-----------:|---------------:|
+|clustnr    |No homolog in the database        |       1,829|            40.6|
+|clustnr    |Homolog found, LCA did not commit |       2,674|            59.4|
+|clustrepdb |No homolog in the database        |         680|            24.7|
+|clustrepdb |Homolog found, LCA did not commit |       2,072|            75.3|
+|nr         |No homolog in the database        |       1,852|            41.4|
+|nr         |Homolog found, LCA did not commit |       2,626|            58.6|
+|repdb      |No homolog in the database        |         682|            23.9|
+|repdb      |Homolog found, LCA did not commit |       2,174|            76.1|
+
+For RepDB, **76.1% of unresolved transcripts do have a
 homolog** — the LCA simply spans too many taxa to commit. That is a property of
 the LCA over a tree-of-life database, not a missing-sequence problem.
 
@@ -748,26 +878,31 @@ The reference labels more transcripts, but far more shallowly. It comes from a
 protist-focused reference set and a different LCA procedure, and its bar for
 calling something "classified" is much lower than ours.
 
-```{r n-resolution-headline}
+
+``` r
 show_tbl(
   res_tbl %>% filter(`Rank or finer` %in% c("species", "genus", "family", "class")),
   "Cumulative % of queries assigned at rank or finer."
 )
 ```
 
-```{r n-resolution-text, echo=FALSE, results="asis"}
-cat(sprintf(
-  "The reference assigns *some* label to %s of transcripts against RepDB's %s. But it reaches species for only %s (RepDB %s), genus for %s (RepDB %s) and family for %s (RepDB %s). Below family the ordering reverses and stays reversed: the reference's advantage is entirely in shallow labels.\n",
-  fmt_p(N$any_ref), fmt_p(N$any_repdb),
-  fmt_p(N$sp_ref), fmt_p(N$sp_repdb),
-  fmt_p(N$gen_ref), fmt_p(N$gen_repdb),
-  fmt_p(N$fam_ref), fmt_p(N$fam_repdb)
-))
-```
+
+
+Table: Cumulative % of queries assigned at rank or finer.
+
+|Rank or finer | Cohen2024| clustnr| clustrepdb|   nr| repdb|
+|:-------------|---------:|-------:|----------:|----:|-----:|
+|species       |       2.4|    39.2|       42.8| 31.4|  35.2|
+|genus         |      10.3|    42.3|       51.9| 35.5|  50.7|
+|family        |      26.6|    46.5|       66.9| 39.8|  66.3|
+|class         |      72.9|    57.6|       73.3| 52.8|  73.2|
+
+The reference assigns *some* label to 97.5% of transcripts against RepDB's 85.7%. But it reaches species for only 2.4% (RepDB 35.2%), genus for 10.3% (RepDB 50.7%) and family for 26.6% (RepDB 66.3%). Below family the ordering reverses and stays reversed: the reference's advantage is entirely in shallow labels.
 
 Two further caveats on the reference labels themselves:
 
-```{r n-ref-quality}
+
+``` r
 ref_counts <- c(N$n_ref_total, N$n_ref_ambiguous, N$n_ref_unclassified)
 
 show_tbl(
@@ -781,9 +916,20 @@ show_tbl(
 )
 ```
 
+
+
+Table: Quality of the reference annotation used as ground truth.
+
+|Property                                  | Transcripts|     %|
+|:-----------------------------------------|-----------:|-----:|
+|Transcripts annotated                     |      20,000| 100.0|
+|Flagged `ambiguous` by the original study |       9,208|  46.0|
+|Left unclassified by the original study   |         497|   2.5|
+
 ## 3. Where RepDB and the reference disagree
 
-```{r n-agreement, eval=("repdb" %in% LCA_DBS)}
+
+``` r
 agr_tbl <- agreement %>%
   group_by(db) %>%
   summarise(
@@ -799,8 +945,19 @@ N$domain_agreement <- agr_tbl$`% agreement where both assign`[agr_tbl$db == "rep
 show_tbl(agr_tbl, "Domain-level agreement with Cohen2024 (Fig. 5C). Domain is the deepest rank at which the reference, NCBI and GTDB nomenclature are directly comparable - below it, RepDB's GTDB prokaryotic names are simply different strings from the reference's NCBI names, so a string comparison would measure nomenclature, not accuracy.")
 ```
 
+
+
+Table: Domain-level agreement with Cohen2024 (Fig. 5C). Domain is the deepest rank at which the reference, NCBI and GTDB nomenclature are directly comparable - below it, RepDB's GTDB prokaryotic names are simply different strings from the reference's NCBI names, so a string comparison would measure nomenclature, not accuracy.
+
+|db         | Reference-placed queries| Also placed by the DB|  Agree| % agreement where both assign|
+|:----------|------------------------:|---------------------:|------:|-----------------------------:|
+|clustnr    |                   19,503|                15,183| 14,602|                          96.2|
+|clustrepdb |                   19,503|                16,914| 16,534|                          97.8|
+|nr         |                   19,503|                15,196| 14,600|                          96.1|
+|repdb      |                   19,503|                16,813| 16,480|                          98.0|
+
 Where both commit to a domain they agree
-`r if ("repdb" %in% LCA_DBS) fmt_p(N$domain_agreement) else "-"` of the time, so
+98.0% of the time, so
 the extra transcripts RepDB resolves are not being bought with wrong calls.
 
 ## 4. Eukaryotic composition below domain level
@@ -810,7 +967,8 @@ question is whether RepDB recovers the same *community*. Going deeper is possibl
 but not by comparing taxon strings directly: UniEuk and the reference disagree on
 names far more often than they disagree on biology.
 
-```{r n-vocab-gap}
+
+``` r
 euk_lineage_names <- function(x) {
   unique(unlist(str_split(x[str_detect(replace_na(x, ""), "Eukaryota")], ";\\s*")))
 }
@@ -827,7 +985,8 @@ vocab_demo <- tibble(
 )
 ```
 
-```{r n-vocab-gap-tbl, eval=("repdb" %in% LCA_DBS)}
+
+``` r
 db_vocab <- reports %>% filter(db == "repdb") %>% pull(nm) %>% str_trim() %>% unique()
 
 show_tbl(
@@ -840,12 +999,28 @@ show_tbl(
 )
 ```
 
+
+
+Table: Why a raw string comparison fails below domain: synonyms, defunct groupings, junior synonyms and PR2-style placeholders. Half of these name the same biology under a different label.
+
+|Reference name     |Meaning                                    |Present in RepDB (UniEuk)? |UniEuk equivalent     |
+|:------------------|:------------------------------------------|:--------------------------|:---------------------|
+|Bacillariophyta    |diatoms                                    |NO                         |Diatomeae             |
+|Dinophyta          |dinoflagellates                            |NO                         |Dinoflagellata        |
+|Karlodinium micrum |a dinoflagellate species                   |NO                         |Karlodinium veneficum |
+|Hacrobia           |Haptophyta + Cryptophyta                   |NO                         |(not used; split)     |
+|Archaeplastida     |plants + red/green algae                   |NO                         |(not used; split)     |
+|Prymnesiales       |a haptophyte order                         |NO                         |(not used)            |
+|Dinophyceae_X      |placeholder: unassigned within Dinophyceae |NO                         |(not a taxon)         |
+|Prymnesiophyceae   |haptophytes                                |yes                        |Prymnesiophyceae      |
+
 The consequence is that a per-transcript string concordance below domain would
 mostly measure nomenclature. What *is* meaningful is to map both vocabularies onto
 an explicit panel of marine eukaryotic groups, with the synonyms declared, and
 compare composition.
 
-```{r euk-groups}
+
+``` r
 # Each group lists the names that denote it in EITHER vocabulary. Within a
 # lineage the first matching group wins, so entries run fine -> coarse; the
 # "other X" entries therefore catch assignments that stop at the parent.
@@ -892,7 +1067,8 @@ assign_euk_group <- function(lineages) {
 }
 ```
 
-```{r n-group-audit, eval=("repdb" %in% LCA_DBS)}
+
+``` r
 # A synonym that exists in neither vocabulary is dead weight; one that exists
 # only in the reference makes the group look absent from RepDB. Both are silent
 # failures, so the mapping is audited rather than trusted.
@@ -913,7 +1089,31 @@ audit <- imap_dfr(EUK_GROUPS, function(syn, g) {
 show_tbl(audit, "Mapping audit: how many of each group's declared synonyms exist in each vocabulary. A group matching nothing in a database silently reads as biologically absent - this is what happened to diatoms before `Diatomeae` was added. It also exposes an asymmetry that matters for the table below: the reference's vocabulary is NCBI/PR2-derived, so nr's names match it more readily than RepDB's UniEuk names do.")
 ```
 
-```{r n-euk-composition, eval=("repdb" %in% LCA_DBS)}
+
+
+Table: Mapping audit: how many of each group's declared synonyms exist in each vocabulary. A group matching nothing in a database silently reads as biologically absent - this is what happened to diatoms before `Diatomeae` was added. It also exposes an asymmetry that matters for the table below: the reference's vocabulary is NCBI/PR2-derived, so nr's names match it more readily than RepDB's UniEuk names do.
+
+|Group                | Synonyms| In reference| clustnr| clustrepdb| nr| repdb|Status |
+|:--------------------|--------:|------------:|-------:|----------:|--:|-----:|:------|
+|Dinophyceae          |        3|            2|       1|          2|  1|     2|ok     |
+|Ciliophora           |        1|            1|       1|          1|  1|     1|ok     |
+|Apicomplexa+rel.     |        3|            3|       2|          2|  2|     2|ok     |
+|Haptophyta           |        3|            3|       3|          2|  3|     2|ok     |
+|Cryptophyta          |        3|            3|       2|          2|  2|     2|ok     |
+|Bacillariophyta      |        5|            2|       4|          1|  3|     1|ok     |
+|Pelagophyceae        |        1|            1|       1|          1|  1|     1|ok     |
+|Dictyochophyceae     |        1|            1|       1|          1|  1|     1|ok     |
+|other Stramenopiles  |        5|            2|       5|          4|  5|     4|ok     |
+|Chlorophyta          |        6|            5|       4|          5|  4|     5|ok     |
+|other Archaeplastida |        5|            4|       2|          3|  2|     3|ok     |
+|Rhizaria             |        5|            4|       4|          4|  4|     4|ok     |
+|Opisthokonta         |       11|           10|       9|          9|  9|     9|ok     |
+|Amoebozoa            |        4|            4|       1|          2|  1|     2|ok     |
+|Discoba/Excavata     |        5|            5|       4|          4|  4|     4|ok     |
+|other Alveolata      |        1|            1|       1|          1|  1|     1|ok     |
+
+
+``` r
 euk_ref_grp <- ref %>%
   filter(str_starts(replace_na(ref_lineage, ""), "Eukaryota")) %>%
   transmute(seq, db = REF, grp = assign_euk_group(ref_lineage))
@@ -945,7 +1145,21 @@ N$n_euk_calls_repdb <- sum(euk_db_grp$db == "repdb")
 N$n_euk_calls_ref <- nrow(euk_ref_grp)
 
 show_tbl(euk_unres, "Eukaryotic calls the group panel cannot place. This is a property of the naming schemes, not of the biology, and is why the composition below is renormalised over placed transcripts.")
+```
 
+
+
+Table: Eukaryotic calls the group panel cannot place. This is a property of the naming schemes, not of the biology, and is why the composition below is renormalised over placed transcripts.
+
+|db         | Eukaryotic calls| Not placed by the panel|    %|
+|:----------|----------------:|-----------------------:|----:|
+|Cohen2024  |           13,034|                   2,510| 19.3|
+|clustnr    |            8,802|                   1,383| 15.7|
+|clustrepdb |           11,170|                   2,694| 24.1|
+|nr         |            8,886|                   1,424| 16.0|
+|repdb      |           11,063|                   2,620| 23.7|
+
+``` r
 show_tbl(
   euk_comp %>% select(-n) %>%
     pivot_wider(names_from = db, values_from = pct) %>%
@@ -956,7 +1170,31 @@ show_tbl(
 )
 ```
 
-```{r n-euk-deviation, eval=("repdb" %in% LCA_DBS)}
+
+
+Table: Eukaryotic community composition, as % of the transcripts the panel places (13,034 eukaryotic transcripts in the reference, 11,063 in RepDB).
+
+|Group                | Cohen2024| clustnr| clustrepdb|   nr| repdb|
+|:--------------------|---------:|-------:|----------:|----:|-----:|
+|Dinophyceae          |      52.9|    49.5|       54.6| 48.9|  54.1|
+|Haptophyta           |      13.8|    13.6|       13.0| 13.7|  13.0|
+|Opisthokonta         |       6.1|     8.5|        3.5|  9.1|   3.4|
+|Ciliophora           |       4.0|     2.5|        2.7|  2.4|   2.8|
+|other Alveolata      |       3.5|     2.7|        4.5|  2.5|   5.3|
+|other Stramenopiles  |       3.5|     5.2|        3.8|  5.3|   3.9|
+|Chlorophyta          |       3.2|     4.0|        2.3|  4.0|   2.3|
+|Pelagophyceae        |       2.5|     4.1|        2.7|  4.0|   2.7|
+|Rhizaria             |       2.3|     1.7|        3.1|  1.7|   3.0|
+|Bacillariophyta      |       2.2|     2.3|        1.6|  2.3|   1.5|
+|Dictyochophyceae     |       1.5|     0.1|        1.1|  0.1|   1.0|
+|Cryptophyta          |       1.4|     0.9|        1.0|  0.9|   1.0|
+|other Archaeplastida |       1.3|     1.2|        0.4|  1.4|   0.3|
+|Discoba/Excavata     |       0.8|     2.1|        5.0|  2.2|   5.0|
+|Amoebozoa            |       0.6|     0.2|        0.6|  0.2|   0.6|
+|Apicomplexa+rel.     |       0.4|     1.3|        0.2|  1.3|   0.3|
+
+
+``` r
 # how far each database's community profile sits from the reference's:
 # total absolute deviation over the panel (0 = identical profile)
 wide <- euk_comp %>% select(db, grp, pct) %>%
@@ -976,7 +1214,19 @@ N$dev_nr <- dev_tbl$`Total absolute deviation (pp)`[dev_tbl$db == "nr"]
 show_tbl(dev_tbl, "Distance of each database's eukaryotic community profile from the reference's, summed over the panel (percentage points; lower is closer).")
 ```
 
-```{r fig-euk-composition, eval=("repdb" %in% LCA_DBS), fig.width=7.2, fig.height=4.5}
+
+
+Table: Distance of each database's eukaryotic community profile from the reference's, summed over the panel (percentage points; lower is closer).
+
+|db         | Total absolute deviation (pp)|Largest single deviation |
+|:----------|-----------------------------:|:------------------------|
+|clustrepdb |                          16.3|Discoba/Excavata         |
+|repdb      |                          16.7|Discoba/Excavata         |
+|clustnr    |                          17.8|Dinophyceae              |
+|nr         |                          19.2|Dinophyceae              |
+
+
+``` r
 ord <- euk_comp %>% filter(db == REF) %>% arrange(pct) %>% pull(grp)
 
 plot_euk <- euk_comp %>%
@@ -994,7 +1244,10 @@ ggsave(fig("FigS3_euk_composition.pdf"), plot_euk, width = 7.2, height = 4.5)
 plot_euk
 ```
 
-```{r n-euk-concordance, eval=("repdb" %in% LCA_DBS)}
+<img src="/Users/gmutti/Desktop/projects/RepDBmaker/results/qc/comparison_files/figure-html/fig-euk-composition-1.png" alt="" width="691.2" />
+
+
+``` r
 # nested calls (RepDB says "other Alveolata", reference says "Dinophyceae") are
 # coarser, not wrong; only genuinely different branches count as conflicts
 nested <- function(a, b) {
@@ -1021,7 +1274,20 @@ scored <- conc %>% filter(verdict != "one side unresolved")
 N$euk_concordance <- mean(scored$verdict != "different group") * 100
 
 show_tbl(conc_tbl, "Per-transcript concordance on the curated panel, for transcripts both sources call eukaryotic.")
+```
 
+
+
+Table: Per-transcript concordance on the curated panel, for transcripts both sources call eukaryotic.
+
+|verdict                  |     n|    %|
+|:------------------------|-----:|----:|
+|compatible (one coarser) |   477|  4.4|
+|different group          |   725|  6.7|
+|one side unresolved      | 3,568| 33.1|
+|same group               | 6,019| 55.8|
+
+``` r
 show_tbl(
   scored %>% filter(verdict == "different group") %>%
     count(ref, repdb, sort = TRUE) %>% head(10),
@@ -1029,19 +1295,28 @@ show_tbl(
 )
 ```
 
-```{r n-euk-text, eval=("repdb" %in% LCA_DBS), echo=FALSE, results="asis"}
-cat(sprintf(
-  "Across the %s transcripts where both sources assign a group, they are consistent **%s** of the time. The composition profiles track each other closely: the reference's three dominant groups are also RepDB's, and no group is inverted.\n\nOne asymmetry to keep in mind: the panel is built from names, and the reference's vocabulary is NCBI/PR2-derived, so nr's lineages hit it more readily than RepDB's UniEuk ones - which is why a larger share of RepDB's eukaryotic calls goes unplaced. That is nomenclature, not biology, which is why the composition is renormalised over placed transcripts.\n",
-  fmt_n(nrow(scored)), fmt_p(N$euk_concordance)
-))
-cat(sprintf(
-  "\nRepDB's community profile is also closer to the reference's than nr's overall (%s vs %s percentage points of total deviation). Two divergences are worth stating plainly rather than averaging away: RepDB under-reports **Opisthokonta** (%s vs the reference's %s), consistent with the downsampling cap measured in section 5, and over-reports **Discoba/Excavata** (%s vs %s), which tracks the residual group-level conflicts above and looks like a UniEuk placement artifact rather than a coverage effect. nr, for its part, essentially misses **Dictyochophyceae** (%s vs %s).\n",
-  fmt_d(N$dev_repdb, 1), fmt_d(N$dev_nr, 1),
-  fmt_p(gp("repdb", "Opisthokonta")), fmt_p(gp(REF, "Opisthokonta")),
-  fmt_p(gp("repdb", "Discoba/Excavata")), fmt_p(gp(REF, "Discoba/Excavata")),
-  fmt_p(gp("nr", "Dictyochophyceae")), fmt_p(gp(REF, "Dictyochophyceae"))
-))
-```
+
+
+Table: Remaining genuine group-level disagreements (top 10).
+
+|ref          |repdb               |  n|
+|:------------|:-------------------|--:|
+|Dinophyceae  |Discoba/Excavata    | 89|
+|Opisthokonta |Discoba/Excavata    | 41|
+|Dinophyceae  |other Stramenopiles | 38|
+|Haptophyta   |Dinophyceae         | 33|
+|Ciliophora   |Discoba/Excavata    | 27|
+|Chlorophyta  |Dinophyceae         | 23|
+|Ciliophora   |Dinophyceae         | 20|
+|Haptophyta   |Discoba/Excavata    | 18|
+|Ciliophora   |Rhizaria            | 17|
+|Opisthokonta |Dinophyceae         | 16|
+
+Across the 7,221 transcripts where both sources assign a group, they are consistent **90.0%** of the time. The composition profiles track each other closely: the reference's three dominant groups are also RepDB's, and no group is inverted.
+
+One asymmetry to keep in mind: the panel is built from names, and the reference's vocabulary is NCBI/PR2-derived, so nr's lineages hit it more readily than RepDB's UniEuk ones - which is why a larger share of RepDB's eukaryotic calls goes unplaced. That is nomenclature, not biology, which is why the composition is renormalised over placed transcripts.
+
+RepDB's community profile is also closer to the reference's than nr's overall (16.7 vs 19.2 percentage points of total deviation). Two divergences are worth stating plainly rather than averaging away: RepDB under-reports **Opisthokonta** (3.4% vs the reference's 6.1%), consistent with the downsampling cap measured in section 5, and over-reports **Discoba/Excavata** (5.0% vs 0.8%), which tracks the residual group-level conflicts above and looks like a UniEuk placement artifact rather than a coverage effect. nr, for its part, essentially misses **Dictyochophyceae** (0.1% vs 1.5%).
 
 ## 5. Is the gap concentrated in the clades RepDB caps?
 
@@ -1049,7 +1324,8 @@ This is the one place where the downsampling does show a cost. The caps in
 `config/repdb.yaml` are Opisthokonta
 (class, n=20), Ciliophora (order, n=20) and Embryophyta (family, n=20).
 
-```{r n-capped, eval=("repdb" %in% LCA_DBS)}
+
+``` r
 CAPPED <- c("Opisthokonta", "Ciliophora", "Embryophyta")
 
 gap <- reason %>%
@@ -1077,14 +1353,41 @@ N$capped_cost <- sum(capped_tbl$`Queries in clade` * capped_tbl$`% unresolved in
 show_tbl(capped_tbl, "Are the transcripts RepDB fails to resolve concentrated in the downsampled clades?", digits = 2)
 ```
 
-```{r n-gap-rank, eval=("repdb" %in% LCA_DBS)}
+
+
+Table: Are the transcripts RepDB fails to resolve concentrated in the downsampled clades?
+
+|Clade        | Queries in clade| % unresolved inside| % unresolved outside| Enrichment|
+|:------------|----------------:|-------------------:|--------------------:|----------:|
+|Opisthokonta |              642|               21.81|                13.52|       1.61|
+|Ciliophora   |              420|               17.86|                13.70|       1.30|
+|Embryophyta  |               11|               45.45|                13.77|       3.30|
+
+
+``` r
 show_tbl(
   gap %>% filter(unresolved) %>%
     count(`Reference rank` = ref_rank, sort = TRUE) %>%
     mutate(`%` = n / sum(n) * 100),
   "How deeply had the reference itself placed the transcripts RepDB leaves unresolved?"
 )
+```
 
+
+
+Table: How deeply had the reference itself placed the transcripts RepDB leaves unresolved?
+
+|Reference rank |   n|    %|
+|:--------------|---:|----:|
+|class          | 799| 29.7|
+|order          | 605| 22.5|
+|supergroup     | 446| 16.6|
+|family         | 428| 15.9|
+|division       | 189|  7.0|
+|genus          | 169|  6.3|
+|species        |  54|  2.0|
+
+``` r
 show_tbl(
   gap %>%
     mutate(ref_supergroup = replace_na(ref_supergroup, "(none)")) %>%
@@ -1099,16 +1402,72 @@ show_tbl(
 )
 ```
 
-```{r n-capped-text, eval=("repdb" %in% LCA_DBS), echo=FALSE, results="asis"}
-cat(sprintf(
-  "Opisthokonta is measurably worse (%s unresolved inside versus %s outside), and Ciliophora mildly so, which is consistent with the caps having a cost. But the affected clades are a small part of a marine metatranscriptome: the three capped clades together account for about %s unresolved transcripts, ~%s of the query set. And the transcripts RepDB fails to place are overwhelmingly ones the reference itself placed only at class or order level - not well-characterised sequences being lost.\n",
-  fmt_p(N$opis_in), fmt_p(N$opis_out),
-  fmt_n(N$capped_cost), fmt_p(N$capped_cost / N$n_queries * 100)
-))
-```
+
+
+Table: Composition of the RepDB gap by reference supergroup (top 15).
+
+|Domain    |Supergroup                   | Queries| Unresolved| % unresolved|
+|:---------|:----------------------------|-------:|----------:|------------:|
+|Eukaryota |Alveolata                    |   6,399|      1,023|         16.0|
+|Eukaryota |(none)                       |   2,487|        374|         15.0|
+|Bacteria  |Proteobacteria               |   3,552|        298|          8.4|
+|Eukaryota |Hacrobia                     |   1,623|        278|         17.1|
+|Eukaryota |Stramenopiles                |   1,020|        158|         15.5|
+|Eukaryota |Opisthokonta                 |     642|        140|         21.8|
+|Eukaryota |Archaeplastida               |     474|         73|         15.4|
+|Bacteria  |(none)                       |     691|         62|          9.0|
+|Bacteria  |Cyanobacteria                |     560|         42|          7.5|
+|Bacteria  |Bacteroidetes/Chlorobi group |     399|         33|          8.3|
+|Eukaryota |Rhizaria                     |     240|         33|         13.8|
+|Bacteria  |Planctomycetes               |     171|         22|         12.9|
+|Bacteria  |Actinobacteria               |     121|         19|         15.7|
+|Bacteria  |Firmicutes                   |     124|         17|         13.7|
+|Eukaryota |Excavata                     |      88|         16|         18.2|
+
+Opisthokonta is measurably worse (21.8% unresolved inside versus 13.5% outside), and Ciliophora mildly so, which is consistent with the caps having a cost. But the affected clades are a small part of a marine metatranscriptome: the three capped clades together account for about 220 unresolved transcripts, ~1.1% of the query set. And the transcripts RepDB fails to place are overwhelmingly ones the reference itself placed only at class or order level - not well-characterised sequences being lost.
 
 # Session info
 
-```{r session-info}
+
+``` r
 sessionInfo()
+```
+
+```
+## R version 4.5.2 (2025-10-31)
+## Platform: aarch64-apple-darwin20
+## Running under: macOS Sequoia 15.6
+## 
+## Matrix products: default
+## BLAS:   /System/Library/Frameworks/Accelerate.framework/Versions/A/Frameworks/vecLib.framework/Versions/A/libBLAS.dylib 
+## LAPACK: /Library/Frameworks/R.framework/Versions/4.5-arm64/Resources/lib/libRlapack.dylib;  LAPACK version 3.12.1
+## 
+## locale:
+## [1] C/UTF-8/C/C/C/C
+## 
+## time zone: Europe/Madrid
+## tzcode source: internal
+## 
+## attached base packages:
+## [1] stats     graphics  grDevices utils     datasets  methods   base     
+## 
+## other attached packages:
+##  [1] patchwork_1.3.2 lubridate_1.9.4 forcats_1.0.1   stringr_1.6.0  
+##  [5] dplyr_1.1.4     purrr_1.2.2     readr_2.1.6     tidyr_1.3.2    
+##  [9] tibble_3.3.0    ggplot2_4.0.1   tidyverse_2.0.0
+## 
+## loaded via a namespace (and not attached):
+##  [1] sass_0.4.10        generics_0.1.4     stringi_1.8.7      hms_1.1.4         
+##  [5] digest_0.6.39      magrittr_2.0.4     evaluate_1.0.5     grid_4.5.2        
+##  [9] timechange_0.3.0   RColorBrewer_1.1-3 bookdown_0.46      fastmap_1.2.0     
+## [13] jsonlite_2.0.0     scales_1.4.0       textshaping_1.0.4  jquerylib_0.1.4   
+## [17] cli_3.6.5          rlang_1.3.0        crayon_1.5.3       bit64_4.6.0-1     
+## [21] withr_3.0.2        cachem_1.1.0       yaml_2.3.12        otel_0.2.0        
+## [25] tools_4.5.2        parallel_4.5.2     tzdb_0.5.0         vctrs_0.7.3       
+## [29] R6_2.6.1           lifecycle_1.0.4    bit_4.6.0          vroom_1.6.7       
+## [33] ragg_1.5.0         pkgconfig_2.0.3    pillar_1.11.1      bslib_0.9.0       
+## [37] gtable_0.3.6       glue_1.8.0         rmdformats_1.0.4   systemfonts_1.3.1 
+## [41] xfun_0.55          tidyselect_1.2.1   knitr_1.51         farver_2.1.2      
+## [45] htmltools_0.5.9    labeling_0.4.3     rmarkdown_2.30     compiler_4.5.2    
+## [49] S7_0.2.1
 ```

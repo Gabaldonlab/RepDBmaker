@@ -28,3 +28,13 @@ resources/releases/*/custom_bundle.tar.gz
 # keeping in git.
 resources/releases/*/zenodo_stage/*
 !resources/releases/*/zenodo_stage/README.md
+
+# macOS / R session cruft
+.DS_Store
+.Rhistory
+.Rproj.user/
+
+# rendered paper-figure notebooks - regenerate with the commands in docs/figures.md
+workflow/notebooks/eda.html
+workflow/notebooks/eda_report.html
+workflow/notebooks/comparison.html
