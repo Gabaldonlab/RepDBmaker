@@ -212,12 +212,9 @@ rule eukaryotes_taxonomy_ref:
         "cat {input} | sort -k2,2 > {output}"
 
 
-# Per-domain references for the custom-proteome conflict check. In pinned-universe
-# mode these rules are simply not in the DAG (harmonization is skipped). The script
-# only *parses* the reference for a domain that actually occurs in the custom
-# table, so the huge GTDB taxonomy is not read unless a prokaryotic custom row
-# exists.
 def validate_reference_input(wildcards):
+    if REPDB_UNIVERSE:
+        return []
     return rules.eukaryotes_taxonomy_ref.output
 
 
@@ -235,7 +232,7 @@ def _custom_fasta_inputs(wildcards):
     custom_bundle.smk, included later, but this resolves fine: Snakemake calls
     input functions only after the whole Snakefile, all includes, is loaded).
     A bundle's proteomes are validated once at packaging time via
-    `package_custom` instead, since they are not local per-id files here."""
+    `package_custom_bundle` instead, since they are not local per-id files here."""
     if CUSTOM_BUNDLE:
         return []
     return [custom_proteome_path(c) for c in CUSTOM_CODES]

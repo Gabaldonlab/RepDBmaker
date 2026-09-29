@@ -22,7 +22,7 @@ databases from public resources and custom genome collections.
   - [Quick start](#quick-start)
   - [Reproducibility](#reproducibility)
     - [Pinned source snapshots](#pinned-source-snapshots)
-    - [Reproducing a release from a pinned universe](#reproducing-a-release-from-a-pinned-universe)
+    - [Reproducing a release](#reproducing-a-release)
   - [Troubleshooting](#troubleshooting)
   - [Documentation](#documentation)
   - [Citation](#citation)
@@ -67,8 +67,12 @@ environments from `workflow/envs/`:
 Create all of them up front, without running the pipeline:
 
 ```bash
-snakemake --sdm conda --conda-create-envs-only
+snakemake --configfile config/repdb.yaml --sdm conda --conda-create-envs-only
 ```
+
+`--configfile config/repdb.yaml` is required here too: the Snakefile reads
+`config["dbs"]["type"]` while building its rule graph, before Snakemake even
+gets to `--conda-create-envs-only`.
 
 These `.yaml` specs are intentionally loose (minimum bounds only where a feature
 requires it) so a fresh install resolves against current packages. To instead
@@ -178,29 +182,33 @@ For sources without stable versioned hosting (UniProt reference-proteome
 release, RefSeq virus catalog, P10K), the **universe** below is what actually
 freezes them, so record the retrieval date alongside your run too.
 
-### Reproducing a release from a pinned universe
+### Reproducing a release
 
-Because several sources are unversioned, re-running the full selection later
-yields a *different* set of proteomes. Building from a frozen **universe**
-instead of the live sources fixes that: taxonomy harmonization is skipped
-entirely, and the selection re-runs deterministically on the pinned
-composition.
+`resources/releases/v1/config.yaml` is the self-contained build config for
+RepDB v1.0. It combines two independent routes; use
+either on its own, or both together as this config does.
+
+**Composition-level**, via `dbs.build.repdb.universe`: because several
+sources are unversioned, re-running the full selection later may yield a
+*different* set of proteomes. Building from a frozen **universe** fixes that: taxonomy harmonization is skipped entirely
+(including for any custom proteomes configured), and the selection re-runs
+deterministically on the pinned composition. The frozen `resources/releases/v1/universe.tsv` is too large for git and ships as
+a [GitHub release asset](https://github.com/Gabaldonlab/RepDBmaker/releases/tag/v1)
+instead; download it into that path before running the command below.
+
+**Artifact-level**, via `dbs.build.repdb.zenodo`: pins the exact sequences.
+The fasta, cluster table, decontamination report and taxdump are fetched from
+the RepDB v1.0 Zenodo deposit and checksum-verified instead of reassembled,
+so you get the exact published database rather than a re-derivation of it.
+See [Getting RepDB v1.0](docs/get-repdb.md) if that (or just downloading the
+data directly, no pipeline needed) is all you're after.
 
 ```bash
 snakemake build --configfile resources/releases/v1/config.yaml --sdm conda -j 8
 ```
 
-`resources/releases/v1/config.yaml` is the self-contained build config for
-that release, produced alongside its pinned `universe.tsv` when the release
-was made. See [docs/releasing.md](docs/releasing.md) for how a release like
-this gets produced, and where to download or publish its assets.
-
-That same command also pins the exact sequences: `resources/releases/v1/config.yaml`
-points at the RepDB v1.0 Zenodo deposit too, so the fasta, cluster table,
-decontamination report and taxdump are fetched and checksum-verified instead
-of reassembled. That's artifact-level reproduction, not just composition-level.
-See [Getting RepDB v1.0](docs/get-repdb.md) if that (or just downloading the
-data directly, no pipeline needed) is all you're after.
+See [docs/releasing.md](docs/releasing.md) for how a release like this gets
+produced, and where its other assets live.
 
 ## Troubleshooting
 

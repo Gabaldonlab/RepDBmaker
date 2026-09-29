@@ -67,10 +67,13 @@ tar -xzf {input} -C "$odir"
 rule package_custom_bundle:
     """Assemble the versioned release-custom bundle (proteomes + metadata) into
     one tar.gz. Upload it (eventually Zenodo) and set dbs.build.repdb.custom_bundle
-    to its path/URL."""
+    to its path/URL.
+
+    Depends on validate_custom_proteomes!!!"""
     input:
         table=config["files"]["new_genomes"],
         proteomes=lambda wc: [custom_proteome_path(c) for c in CUSTOM_CODES],
+        valid=rules.validate_custom_proteomes.output,
     output:
         "results/custom/repdb_custom_bundle.tar.gz",
     localrule: True

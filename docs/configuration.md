@@ -84,6 +84,11 @@ Notes:
   harmonization, or a blank one) are **not** capped: there's no way to know where
   they belong taxonomically, so they are all kept.
 - Genomes forced in via `clades_to_keep` and all custom (`CUS…`) proteomes bypass
-  the downsampling and are always retained.
+  the downsampling and are always retained. Custom proteomes have no BUSCO/CheckM2
+  completeness estimate to rank them by (unlike the public sources), so they
+  can't be subject to the same completeness-guided selection; more importantly,
+  they're deliberately hand-picked additions, typically to cover taxonomic
+  groups the public sources under-sample, so downsampling them would defeat
+  the purpose of adding them.
 - A `rank` outside `phylum/class/order/family`, or an entry missing `rank`,
   `taxon` or `n`, aborts the run immediately with a clear error.

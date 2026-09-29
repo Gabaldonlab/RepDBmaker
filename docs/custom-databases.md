@@ -42,8 +42,8 @@ the table first (see below).
 | `ID`        | yes      | Unique mnemonic, **must start with `CUS`** (e.g. `CUS00001`). Non-`CUS` IDs are silently discarded by `filter_tax.R`. |
 | `Species`   | yes      | Organism name (a single organism per row). |
 | `Data_type` | yes      | `genome`, `transcriptome`, … (informational). |
-| `Fasta`     | yes      | Path to the proteome FASTA for this entry. |
 | `Lineage`   | yes      | Exactly **7 `;`-separated ranks** with the prefixes `d__ p__ c__ o__ f__ g__ s__`. |
+| `Fasta`     | no (legacy) | Path to the proteome FASTA. Only needed for old-style tables; the proteome file is otherwise resolved from `files.custom_proteomes` by `ID` (`<ID>.faa.gz`/`.fa`/…). |
 | `Paper`, `Source`, `Note` | no | Free-text provenance. |
 
 Example row (`Lineage` shown on its own line):
@@ -75,6 +75,12 @@ Notes on the implicit specification (made explicit here):
   reproduce mode with a pinned universe) is validated for schema only.
 - **All seven ranks must be present and non-empty** (`d__` through `s__`), because
   the taxdump is built by splitting the lineage into exactly these columns.
+- **Custom proteomes are never excluded by downsampling.** `remove_duplicated_species`,
+  `top_n_genuses` and `reduce_abundant_clades` (see [Configuration](configuration.md))
+  only apply to the public sources: custom entries have no completeness estimate
+  to rank them by, and are typically added specifically to cover taxonomic groups
+  the public sources under-sample, so every validated row ends up in the
+  database regardless of those settings.
 
 ### Validating the table
 
@@ -93,7 +99,9 @@ Rscript workflow/scripts/check_custom_proteomes.R <table> \
   --reference results/taxonomies/eukaryotes_taxonomy_ref.tsv \
   --reference-prok results/taxonomies/gtdb_taxonomy.tsv \
   --reference-virus results/taxonomies/virus_taxonomy.tsv
-# add --check-fasta to also verify each Fasta path exists and is non-empty
+# add --check-fasta --proteome-dir resources/custom_proteomes to also content-check
+# each row's FASTA (resolved by ID from --proteome-dir, or from the legacy Fasta
+# column when the table still has one)
 ```
 
 It **errors** (non-zero exit) on: missing columns, non-`CUS` IDs, duplicate IDs,
@@ -106,3 +114,10 @@ with the reference taxonomy for its domain (a known taxon placed under a parent 
 does not have there). The **only warning** lists the *new coherent lineages*:
 custom entries that do not conflict but introduce taxa the reference does not
 know, so the novel taxonomy being added can be reviewed before it propagates.
+
+**What this validation does not do:** it checks file and lineage-format
+validity and cross-entry taxonomic self-consistency, not whether a proteome's
+sequences actually belong to its declared organism. A row assigned a lineage
+that is internally valid but factually wrong (e.g. a genuinely yeast proteome
+mislabeled as a known bacterial species) will still pass, and the resulting
+sequences will inherit that lineage's taxid. 

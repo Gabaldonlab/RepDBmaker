@@ -128,19 +128,27 @@ database was built against is not part of the release.
 
 **Why it matters.** `config/default.yaml` currently pins `gtdb: "release226"`, but
 the value accepts `latest`, and a release built that way would leave no record of
-what `latest` resolved to. Even with a pin, someone reading a released
-`config.yaml` cannot see it. This is exactly the ambiguity that made a shifted
-genus attribution hard to diagnose: GTDB reshuffles picocyanobacterial genera
-between releases, and there was no way to confirm from the release which one had
-been used.
+what `latest` resolved to. 
+
+This gap is sharpest for UniEuk: unlike GTDB/EukProt (versioned releases) or
+the Zenodo-deposited RepDB v1.0 assets (checksum-verified on fetch,
+`fetch_zenodo.sh`), `download_unieuk` does a plain `wget` with no sha256
+check and no archived copy anywhere in the release manifest. Even a
+version-pinned UniEuk fetch (`unieuk: "0.0.1-pre_release"`) offers no
+guarantee that its content matches what built a given release;
 
 **Possible change.** Copy the resolved `versions:` block into
 `resources/releases/<version>/config.yaml`, and add the source database versions
 to `release.yaml` alongside the software version and git commit. If `latest` was
-requested, record what it resolved to, not the literal string `latest`.
+requested, record what it resolved to, not the literal string `latest`. For
+UniEuk specifically, either mirror the exported tsv as a checksummed release
+asset (the same way `universe.tsv` is), or record a sha256 of the fetched file
+in `release.yaml` so a later mismatch is at least detectable.
 
-**Cost.** Metadata only — a few lines in `make_release`. Does not touch the
-database, and can go into the current release.
+**Cost.** Metadata only — a few lines in `make_release`. Mirroring the UniEuk export as
+an asset is a small additional step at release time (one more file to stage
+and checksum) but requires no pipeline changes. Though I feel it's out of our scope and 
+hopefully UniEuk will improve their versioning.
 
 ---
 
@@ -237,15 +245,3 @@ of it. Document the bottleneck in `docs/executors.md` and
 they hit it.
 
 **Cost.** Scheduling metadata only. Does not change the database.
-
----
-
-## Pending for the current release
-
-- **`repdb_meta.tsv` needs re-issuing.** Its `n_contaminants` and
-  `prop_contaminants` columns are zero for every organism in any copy written
-  before the organism-id fix in `analyze_stats.R` (the sequence id is
-  `<taxid>_<mnemo>_<accession>`; the tally split on the first field). It ships as
-  a Zenodo asset, so a published copy carries the dead columns. Re-run
-  `make_db_meta` and replace the asset. `universe.tsv` is unaffected — it has no
-  contaminant columns.
